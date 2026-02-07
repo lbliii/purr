@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 2 — reactive pipeline complete
+**Status**: Phase 3 — dynamic routes complete
 
 ---
 

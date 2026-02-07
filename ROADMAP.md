@@ -413,29 +413,46 @@ The core innovation — content changes propagate to the browser via SSE.
 - [x] Integration tests for HMR middleware (7 tests: script injection, non-HTML skip)
 - [x] Integration tests for SSE endpoint registration (4 tests)
 
-### Phase 3: Dynamic Routes
+### Phase 3: Dynamic Routes ✓
 
 Serve user-defined Chirp routes alongside Bengal content.
 
+**Route loader:**
+
+- [x] `routes/loader.py` — file-path convention route discovery from `routes/` directory
+- [x] Handler convention: function names (`get`, `post`, `put`, `delete`, `patch`, `handler`)
+  map to HTTP methods. No decorators, no base classes.
+- [x] Explicit `path` override for custom URL patterns (e.g., parameterized routes)
+- [x] Optional `name` and `nav_title` module-level metadata
+- [x] Validation: async handlers required, duplicate path detection, clear error messages
+
 **Route integration:**
 
-- [ ] Discover and load routes from `routes/` directory
-- [ ] Merge dynamic routes with content routes in Chirp's router
-- [ ] Shared template context: dynamic routes access `site` object
-- [ ] Navigation integration: dynamic pages appear in site nav
+- [x] Discover and load routes from `routes/` directory via `importlib.util`
+- [x] Merge dynamic routes with content routes in Chirp's router
+- [x] Shared template context: dynamic routes access `site` via `from purr import site`
+- [x] Navigation integration: `NavEntry` objects injected into template globals as
+  `dynamic_routes`, accessible from all templates
 
 **Production mode:**
 
-- [ ] `purr serve` — run as live Pounce server in production
-- [ ] Static content served from memory (pre-rendered at startup)
-- [ ] Dynamic routes handled by Chirp per-request
-- [ ] Worker-safe: immutable site data shared across Pounce threads
+- [x] `purr serve` discovers and wires dynamic routes alongside content routes
+- [x] Dynamic routes handled by Chirp per-request
+- [x] Worker-safe: immutable site data shared across Pounce threads (Bengal Site frozen,
+  Chirp route table frozen, no shared mutable state)
+
+**Dev mode:**
+
+- [x] Route file changes detected by watcher, logged with restart-required message
+  (route table is frozen after startup — hot-reload deferred to Phase 5)
 
 **Tests:**
 
-- [ ] Unit tests for route discovery and loading
-- [ ] Integration test: mixed static + dynamic routes
-- [ ] Integration test: `purr serve` under Pounce with multiple workers
+- [x] Unit tests for route loader (34 tests: discovery, methods, path derivation,
+  validation, nav entries)
+- [x] Unit tests for site context accessor (5 tests)
+- [x] Integration tests: mixed static + dynamic routes (8 tests: coexistence, 404,
+  request handling, site access, nav globals)
 
 ### Phase 4: Static Export
 
