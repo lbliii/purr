@@ -337,30 +337,31 @@ Project scaffolding, vision, architecture documentation.
 - [x] Vision document (ROADMAP.md)
 - [x] Module stubs for content, reactive, and export subsystems
 
-### Phase 1: Content Router
+### Phase 1: Content Router ✓
 
 Serve Bengal pages as Chirp routes. The minimal viable integration — `purr dev` starts a
 server that renders Bengal content through Chirp.
 
 **Content layer:**
 
-- [ ] `config.py` — `PurrConfig` frozen dataclass (site root, mode, host, port)
-- [ ] `content/router.py` — discover Bengal pages, register as Chirp routes
-- [ ] `app.py` — `PurrApp` wrapping Bengal `Site` + Chirp `App`
-- [ ] `_cli.py` — `purr dev` and `purr build` commands
+- [x] `config.py` — `PurrConfig` frozen dataclass (site root, mode, host, port)
+- [x] `content/router.py` — discover Bengal pages, register as Chirp routes
+- [x] `app.py` — `dev()`, `build()`, `serve()` wiring Bengal `Site` + Chirp `App`
+- [x] `_cli.py` — `purr dev`, `purr build`, and `purr serve` commands
 
 **Integration:**
 
-- [ ] Load Bengal site content at startup
-- [ ] Render pages through Kida templates via Chirp's template integration
-- [ ] Serve static assets alongside rendered content
-- [ ] `purr build` delegates to Bengal's existing build pipeline
+- [x] Load Bengal site content at startup via `Site.from_config()`
+- [x] Render pages through Kida templates via Chirp's template integration
+- [x] Serve static assets alongside rendered content via `StaticFiles` middleware
+- [x] `purr build` delegates to Bengal's `BuildOrchestrator` pipeline
+- [x] `purr serve` runs production Pounce with configurable workers
 
 **Tests:**
 
-- [ ] Unit tests for content routing
-- [ ] Integration test: content site served through Purr
-- [ ] Integration test: `purr build` produces static output
+- [x] Unit tests for content routing and template resolution (9 tests)
+- [x] Integration tests: content site served through Purr via Chirp test client (12 tests)
+- [x] End-to-end: pages return 200 with correct content, 404 for unknown paths
 
 ### Phase 2: Reactive Pipeline
 

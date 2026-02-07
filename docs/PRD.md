@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 0 — scaffolding complete
+**Status**: Phase 1 — content router complete
 
 ---
 
@@ -252,13 +252,13 @@ adds zero additional runtime dependencies.
 
 ## 7. Success Criteria
 
-### 7.1 Phase 1: Content Router
+### 7.1 Phase 1: Content Router ✓
 
-- [ ] `purr dev` starts a Pounce server serving Bengal content via Chirp
-- [ ] Content pages rendered through Kida templates
-- [ ] `purr build` produces static output identical to Bengal's build
-- [ ] Static assets served alongside content
-- [ ] CLI works: `purr dev my-site/`, `purr build my-site/`
+- [x] `purr dev` starts a Pounce server serving Bengal content via Chirp
+- [x] Content pages rendered through Kida templates
+- [x] `purr build` produces static output via Bengal's BuildOrchestrator
+- [x] Static assets served alongside content
+- [x] CLI works: `purr dev my-site/`, `purr build my-site/`, `purr serve my-site/`
 
 ### 7.2 Phase 2: Reactive Pipeline
 

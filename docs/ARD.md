@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 0 — scaffolding complete
+**Status**: Phase 1 — content router complete
 
 ---
 

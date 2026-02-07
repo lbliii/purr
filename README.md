@@ -14,8 +14,31 @@ content that changed. Add a dynamic route alongside your static content without 
 frameworks. Deploy as static files or run as a live server. The boundary between static
 site and web application disappears.
 
-**Status:** Pre-alpha — scaffolding and vision. See [ROADMAP.md](ROADMAP.md) for the full
-plan.
+**Status:** Pre-alpha — Phase 1 (content router) complete. Bengal pages served through
+Chirp with dev/build/serve modes. See [ROADMAP.md](ROADMAP.md) for the full plan.
+
+## Quick Start
+
+```bash
+# Development server (single worker, debug mode)
+purr dev my-site/
+
+# Static export (delegates to Bengal's build pipeline)
+purr build my-site/
+
+# Production server (multi-worker via Pounce)
+purr serve my-site/ --workers 4
+```
+
+Or programmatically:
+
+```python
+import purr
+
+purr.dev("my-site/")       # Reactive local development
+purr.build("my-site/")     # Static export
+purr.serve("my-site/")     # Live production server
+```
 
 ## Key Ideas
 
