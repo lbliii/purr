@@ -16,6 +16,11 @@ Three modes::
     purr.build("my-site/")        # Static export
     purr.serve("my-site/")        # Live production server
 
+Site accessor (available after ``dev()`` or ``serve()`` initializes)::
+
+    from purr import site
+    results = site.search(query)
+
 Part of the Bengal ecosystem:
 
     purr        Content runtime   (connects everything)
@@ -28,6 +33,11 @@ Part of the Bengal ecosystem:
 
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from bengal.core.site import Site
+
 # PEP 703: Declare this module as free-threading safe
 _Py_mod_gil = 0
 
@@ -38,14 +48,46 @@ __all__ = [
     "build",
     "dev",
     "serve",
+    "site",
 ]
+
+# ---------------------------------------------------------------------------
+# Site accessor — set once at startup, immutable thereafter
+# ---------------------------------------------------------------------------
+
+_site_ref: Site | None = None
+
+
+def _set_site(site_instance: Site) -> None:
+    """Store the Bengal Site for access by dynamic route handlers.
+
+    Called once during ``dev()`` or ``serve()`` initialization.  The Site
+    object is frozen/immutable, so a module-level reference is safe for
+    free-threading.
+
+    Args:
+        site_instance: The loaded Bengal Site.
+
+    """
+    global _site_ref  # noqa: PLW0603
+    _site_ref = site_instance
 
 
 def __getattr__(name: str) -> object:
-    """Lazy imports for public API.
+    """Lazy imports and site accessor for public API.
 
     Keeps ``import purr`` fast while providing a clean top-level API.
+    The ``site`` attribute is a runtime reference set during initialization.
     """
+    if name == "site":
+        if _site_ref is None:
+            msg = (
+                "purr.site accessed before initialization. "
+                "Call purr.dev() or purr.serve() first."
+            )
+            raise RuntimeError(msg)
+        return _site_ref
+
     if name == "PurrConfig":
         from purr.config import PurrConfig
 

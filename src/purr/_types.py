@@ -1,8 +1,7 @@
 """Shared type definitions for purr."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,3 +17,9 @@ type BlockName = str
 
 # SSE client identifier
 type ClientID = str
+
+# Route URL path (e.g., "/search", "/api/users")
+type RoutePath = str
+
+# Async handler function for a dynamic route
+type HandlerFunc = Callable[..., Any]
