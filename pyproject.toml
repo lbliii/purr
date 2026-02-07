@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "purr"
+name = "bengal-purr"
 version = "0.1.0-dev"
 description = "A content-reactive runtime for Python 3.14t — static sites that become dynamic apps"
 readme = "README.md"
@@ -32,15 +32,15 @@ classifiers = [
 ]
 dependencies = [
     "bengal>=0.1.8",
-    "chirp>=0.1.0",
-    "pounce>=0.1.0",
+    "bengal-chirp>=0.1.0",
+    "bengal-pounce>=0.1.0",
     "watchfiles>=1.0.0",
 ]
 
 [project.optional-dependencies]
-# Full protocol support (passed through to pounce)
+# Full protocol support (passed through to bengal-pounce)
 full = [
-    "pounce[full]",
+    "bengal-pounce[full]",
 ]
 
 [project.scripts]
@@ -66,8 +66,8 @@ purr = ["py.typed"]
 
 [tool.uv.sources]
 bengal = { path = "../bengal", editable = true }
-chirp = { path = "../chirp", editable = true }
-pounce = { path = "../pounce", editable = true }
+bengal-chirp = { path = "../chirp", editable = true }
+bengal-pounce = { path = "../pounce", editable = true }
 
 # =============================================================================
 # Ruff — Linter & Formatter

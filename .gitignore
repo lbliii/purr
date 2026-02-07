@@ -66,8 +66,7 @@ Thumbs.db
 # Project specific
 *.log
 
-# uv
-uv.lock
+# uv.lock tracked for reproducibility (matches bengal ecosystem convention)
 
 # DORI (local/ephemeral)
 .dori/local/
