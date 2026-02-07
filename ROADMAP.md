@@ -363,44 +363,55 @@ server that renders Bengal content through Chirp.
 - [x] Integration tests: content site served through Purr via Chirp test client (12 tests)
 - [x] End-to-end: pages return 200 with correct content, 404 for unknown paths
 
-### Phase 2: Reactive Pipeline
+### Phase 2: Reactive Pipeline ✓
 
 The core innovation — content changes propagate to the browser via SSE.
 
 **AST diffing:**
 
-- [ ] `content/differ.py` — structural tree diff on Patitas frozen ASTs
-- [ ] Fast-path: `==` comparison on subtrees (skip unchanged)
-- [ ] `ASTChange` dataclass: kind, path, old_node, new_node, location
+- [x] `content/differ.py` — structural tree diff on Patitas frozen ASTs
+- [x] Fast-path: `==` comparison on subtrees (skip unchanged)
+- [x] `ASTChange` dataclass: kind, path, old_node, new_node
 
 **Reactive mapping:**
 
-- [ ] `reactive/graph.py` — unified dependency graph combining Bengal's EffectTracer
+- [x] `reactive/graph.py` — unified dependency graph combining Bengal's EffectTracer
   with Kida's block-level dependency analysis
-- [ ] `reactive/mapper.py` — map AST changes to affected template blocks using
+- [x] `reactive/mapper.py` — map AST changes to affected template blocks using
   Kida's `block_metadata()` and `depends_on()`
-- [ ] Content-to-context mapping: "Heading changed → page.toc → sidebar block"
+- [x] Content-to-context mapping: "Heading changed → page.toc → sidebar block"
 
 **File watching:**
 
-- [ ] `content/watcher.py` — file change detection triggering the reactive pipeline
-- [ ] Selective re-parse: only re-parse changed files through Patitas
-- [ ] Integration with Bengal's `EffectTracer` for transitive dependencies
+- [x] `content/watcher.py` — file change detection triggering the reactive pipeline
+- [x] Selective re-parse: only re-parse changed files through Patitas
+- [x] Integration with Bengal's `EffectTracer` for transitive dependencies
 
 **SSE broadcasting:**
 
-- [ ] `reactive/broadcaster.py` — manage SSE connections per page
-- [ ] Push `Fragment` updates via Chirp's `EventStream`
-- [ ] Minimal client-side JS/htmx snippet injected in dev mode
-- [ ] Cascade handling: config changes → nav/header blocks across all pages
-- [ ] Template changes → full page refresh for affected pages
+- [x] `reactive/broadcaster.py` — manage SSE connections per page
+- [x] Push `Fragment` updates via Chirp's `EventStream`
+- [x] Minimal client-side JS snippet injected in dev mode (native EventSource)
+- [x] Cascade handling: config changes → nav/header blocks across all pages
+- [x] Template changes → full page refresh for affected pages
+
+**Pipeline integration:**
+
+- [x] `reactive/pipeline.py` — coordinator connecting watcher to broadcaster
+- [x] `reactive/hmr.py` — HMR middleware injecting SSE client script into HTML
+- [x] AST cache for diffing (populated at startup, replace-on-write)
+- [x] `dev()` wires full reactive pipeline with watcher, differ, mapper, broadcaster
 
 **Tests:**
 
-- [ ] Unit tests for AST differ (added, removed, modified nodes)
-- [ ] Unit tests for reactive mapper (content change → block identification)
-- [ ] Integration test: edit Markdown → browser receives SSE fragment
-- [ ] Edge cases: cascade changes, template inheritance chains
+- [x] Unit tests for AST differ (15 tests: added, removed, modified, type change, etc.)
+- [x] Unit tests for reactive mapper (15 tests: content change → block identification)
+- [x] Unit tests for dependency graph (13 tests: tracer delegation, block deps, cascade)
+- [x] Unit tests for broadcaster (18 tests: subscribe, push, generator, refresh)
+- [x] Unit tests for file watcher (17 tests: change categorization by path/extension)
+- [x] Integration tests for pipeline coordinator (7 tests: content, template, config changes)
+- [x] Integration tests for HMR middleware (7 tests: script injection, non-HTML skip)
+- [x] Integration tests for SSE endpoint registration (4 tests)
 
 ### Phase 3: Dynamic Routes
 
@@ -482,14 +493,15 @@ Purr deliberately does not:
 
 ```
 purr (content-reactive runtime)
-├── bengal    # Content pipeline, dependency tracking, incremental builds
-├── chirp     # Web framework, SSE, fragments, middleware
-└── pounce    # ASGI server, free-threading workers
-    └── h11   # HTTP/1.1 parser
+├── bengal      # Content pipeline, dependency tracking, incremental builds
+├── chirp       # Web framework, SSE, fragments, middleware
+├── pounce      # ASGI server, free-threading workers
+│   └── h11     # HTTP/1.1 parser
+└── watchfiles  # Efficient filesystem monitoring (Phase 2)
 ```
 
 Bengal, Chirp, and Pounce bring their own dependencies (Kida, Patitas, Rosettes). Purr adds
-no additional runtime dependencies beyond the ecosystem itself.
+`watchfiles` for filesystem monitoring in the reactive pipeline.
 
 ### Optional
 

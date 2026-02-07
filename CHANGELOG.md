@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 2: Reactive Pipeline** — content changes propagate to the browser via SSE
+  - `content/differ.py` — structural tree diff on Patitas frozen ASTs with fast-path
+    subtree skipping via `==` on frozen nodes. Produces `ASTChange` tuples.
+  - `content/watcher.py` — file watcher using `watchfiles` with change categorization
+    (content, template, config, asset, route). Bridges to asyncio via queue.
+  - `reactive/graph.py` — unified dependency graph combining Bengal's `EffectTracer`
+    (file-level) with Kida's `block_metadata()` (block-level). Cached per template.
+  - `reactive/mapper.py` — maps AST node changes to affected template blocks using
+    `CONTENT_CONTEXT_MAP` and Kida's block dependency analysis. Conservative fallback
+    for unknown node types.
+  - `reactive/broadcaster.py` — per-page SSE subscriber management with `Fragment`
+    and `SSEEvent` push. Thread-safe subscriber map.
+  - `reactive/pipeline.py` — coordinator connecting watcher to broadcaster with AST
+    cache, content/template/config change routing, and Patitas re-parse.
+  - `reactive/hmr.py` — HMR middleware injecting native `EventSource` script into
+    HTML responses for live DOM updates in dev mode.
+  - `/__purr/events` SSE endpoint registered via `ContentRouter.register_sse_endpoint()`
+  - `dev()` now wires the full reactive pipeline: dependency graph, mapper, broadcaster,
+    watcher, SSE endpoint, and HMR middleware.
+  - `watchfiles>=1.0.0` added as a core dependency
+  - 108 new tests (96 unit + 12 integration) bringing total to 132
+
 - **Phase 1: Content Router** — Bengal pages served as Chirp routes
   - `ContentRouter` discovers Bengal pages and registers each as a Chirp GET route
   - Template resolution: frontmatter override, index detection, `page.html` default
