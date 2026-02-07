@@ -6,6 +6,7 @@ creating a unified URL space where static content and dynamic routes coexist.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -13,9 +14,14 @@ if TYPE_CHECKING:
     from bengal.core.site import Site
     from chirp import App, Request
 
+    from purr.reactive.broadcaster import Broadcaster
+
 
 _DEFAULT_TEMPLATE = "page.html"
 _INDEX_TEMPLATE = "index.html"
+
+# SSE endpoint path for reactive updates
+SSE_ENDPOINT = "/__purr/events"
 
 
 def _resolve_template_name(page: Page) -> str:
@@ -107,6 +113,44 @@ class ContentRouter:
             return path
 
         return None
+
+    def register_sse_endpoint(self, broadcaster: Broadcaster) -> None:
+        """Register the ``/__purr/events`` SSE endpoint.
+
+        Clients connect with a ``page`` query parameter to subscribe to
+        reactive updates for a specific page. The route returns a Chirp
+        ``EventStream`` that pushes Fragment and SSEEvent objects from the
+        broadcaster's per-connection queue.
+
+        Args:
+            broadcaster: Broadcaster instance managing SSE subscriptions.
+
+        """
+        from chirp import EventStream
+
+        from purr.reactive.broadcaster import SSEConnection
+
+        async def sse_handler(request: Request) -> Any:
+            # Extract the page permalink from query params
+            permalink = request.query.get("page", "/")
+            client_id = str(uuid.uuid4())
+
+            conn = SSEConnection(client_id=client_id, permalink=permalink)
+            broadcaster.subscribe(permalink, conn)
+
+            async def generate():  # type: ignore[return]
+                try:
+                    async for event in broadcaster.client_generator(conn):
+                        yield event
+                finally:
+                    broadcaster.unsubscribe(permalink, conn)
+
+            return EventStream(generate())
+
+        sse_handler.__name__ = "purr_sse"
+        sse_handler.__qualname__ = "ContentRouter.purr_sse"
+
+        self._app.route(SSE_ENDPOINT, name="purr:events")(sse_handler)
 
     def _make_page_handler(self, page: Page, template_name: str) -> Any:
         """Create a Chirp route handler that renders a Bengal page.

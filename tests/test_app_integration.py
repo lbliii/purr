@@ -71,7 +71,7 @@ class TestWireContentRoutes:
         site = make_test_site(tmp_path, pages)
         app = App(config=AppConfig(template_dir=tmp_path))
 
-        count = _wire_content_routes(site, app)
+        _router, count = _wire_content_routes(site, app)
         assert count == 2
 
     def test_empty_site_returns_zero(self, tmp_path: Path) -> None:
@@ -80,7 +80,7 @@ class TestWireContentRoutes:
         site = make_test_site(tmp_path, [])
         app = App(config=AppConfig(template_dir=tmp_path))
 
-        count = _wire_content_routes(site, app)
+        _router, count = _wire_content_routes(site, app)
         assert count == 0
 
 
