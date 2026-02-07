@@ -1,0 +1,62 @@
+"""Purr configuration.
+
+PurrConfig is the central configuration object, frozen after creation.
+"""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass(frozen=True, slots=True)
+class PurrConfig:
+    """Configuration for a Purr application.
+
+    Attributes:
+        root: Path to the site root directory (contains content/, templates/, etc.)
+        host: Bind address for dev/serve modes.
+        port: Bind port for dev/serve modes.
+        output: Output directory for static export.
+        workers: Number of Pounce workers (0 = auto-detect).
+        routes_dir: Directory containing user-defined Chirp routes.
+        content_dir: Directory containing Markdown content.
+        templates_dir: Directory containing Kida templates.
+        static_dir: Directory containing static assets.
+
+    """
+
+    root: Path = field(default_factory=Path.cwd)
+    host: str = "127.0.0.1"
+    port: int = 3000
+    output: Path = field(default_factory=lambda: Path("dist"))
+    workers: int = 0
+    routes_dir: str = "routes"
+    content_dir: str = "content"
+    templates_dir: str = "templates"
+    static_dir: str = "static"
+
+    @property
+    def content_path(self) -> Path:
+        """Absolute path to content directory."""
+        return self.root / self.content_dir
+
+    @property
+    def templates_path(self) -> Path:
+        """Absolute path to templates directory."""
+        return self.root / self.templates_dir
+
+    @property
+    def static_path(self) -> Path:
+        """Absolute path to static assets directory."""
+        return self.root / self.static_dir
+
+    @property
+    def routes_path(self) -> Path:
+        """Absolute path to user routes directory."""
+        return self.root / self.routes_dir
+
+    @property
+    def output_path(self) -> Path:
+        """Absolute path to output directory."""
+        if self.output.is_absolute():
+            return self.output
+        return self.root / self.output
