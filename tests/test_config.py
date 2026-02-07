@@ -32,7 +32,7 @@ class TestPurrConfig:
         assert config.output_path == tmp_path / "dist"
 
     def test_absolute_output_preserved(self, tmp_path: Path) -> None:
-        output = Path("/tmp/custom-output")  # noqa: S108
+        output = Path("/tmp/custom-output")
         config = PurrConfig(root=tmp_path, output=output)
         assert config.output_path == output
 

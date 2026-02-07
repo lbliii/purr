@@ -46,7 +46,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run live production server",
     )
     serve_parser.add_argument("root", nargs="?", default=".", help="Site root directory")
-    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address")  # noqa: S104
+    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address")
     serve_parser.add_argument("--port", type=int, default=8000, help="Bind port")
     serve_parser.add_argument("--workers", type=int, default=0, help="Worker count (0=auto)")
 
