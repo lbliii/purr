@@ -21,6 +21,8 @@ class PurrConfig:
         content_dir: Directory containing Markdown content.
         templates_dir: Directory containing Kida templates.
         static_dir: Directory containing static assets.
+        base_url: Base URL for the site (used for sitemap generation).
+        fingerprint: Enable content-hash asset fingerprinting in ``purr build``.
 
     """
 
@@ -33,6 +35,8 @@ class PurrConfig:
     content_dir: str = "content"
     templates_dir: str = "templates"
     static_dir: str = "static"
+    base_url: str = ""
+    fingerprint: bool = False
 
     @property
     def content_path(self) -> Path:

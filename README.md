@@ -19,10 +19,34 @@ alongside Bengal content. Content changes propagate through AST diffing, depende
 and SSE broadcasting to the browser in milliseconds.
 See [ROADMAP.md](ROADMAP.md) for the full plan.
 
+---
+
+## Why Purr?
+
+Every existing content tool forces a choice: static site or web application.
+
+Static site generators build HTML files from content — fast and deployable, but when you
+need search, authentication, or a dashboard, you leave the static world and rewrite in a
+framework. Web frameworks handle dynamic content natively, but they're overkill for
+documentation and their content story is an afterthought.
+
+The Bengal ecosystem already solves each piece: Patitas parses Markdown into typed ASTs,
+Kida compiles templates to Python AST, Rosettes highlights code in O(n), Bengal builds
+static sites with dependency tracking, Chirp serves HTML with SSE streaming, and Pounce
+runs ASGI with real thread parallelism.
+
+What was missing is the integration — the layer that connects Bengal's dependency graph to
+Chirp's SSE pipeline, maps Patitas AST changes to Kida template blocks, and makes "static
+site that becomes a dynamic app" a single command instead of a rewrite.
+
+Purr is that layer.
+
+---
+
 ## Quick Start
 
 ```bash
-# Development server (single worker, debug mode)
+# Development server (single worker, reactive pipeline active)
 purr dev my-site/
 
 # Static export (delegates to Bengal's build pipeline)
@@ -42,6 +66,85 @@ purr.build("my-site/")     # Static export
 purr.serve("my-site/")     # Live production server
 ```
 
+---
+
+## How It Works
+
+Content is a reactive data structure, not a build artifact. When you edit a Markdown file,
+the change propagates through a typed pipeline:
+
+```
+Edit Markdown file
+    → Patitas re-parses to typed AST (frozen, hashable nodes)
+    → ASTDiffer identifies which nodes changed (O(1) skip for unchanged subtrees)
+    → DependencyGraph resolves affected pages and template blocks
+    → ReactiveMapper maps AST changes to specific block updates
+    → Broadcaster pushes HTML fragments via SSE
+    → Browser swaps the DOM (htmx, no JS framework)
+```
+
+This isn't hot-reload. Hot-reload rebuilds the page. Purr traces a content change through
+the dependency graph to the exact DOM element that needs updating.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Browser (htmx SSE subscription on /__purr/events)      │
+└────────────────────────────┬────────────────────────────┘
+                             │ HTTP + SSE
+┌────────────────────────────▼────────────────────────────┐
+│  Pounce (ASGI server, free-threading workers)           │
+└────────────────────────────┬────────────────────────────┘
+                             │ ASGI
+┌────────────────────────────▼────────────────────────────┐
+│  Purr App                                               │
+│                                                         │
+│  ContentRouter — Bengal pages as Chirp routes            │
+│  RouteLoader  — user Python routes alongside content    │
+│  SSE endpoint — /__purr/events                          │
+│                                                         │
+│  Reactive Pipeline (dev mode):                          │
+│  FileWatcher → ASTDiffer → DependencyGraph → Mapper     │
+│                                  → SSE Broadcaster      │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Dynamic Routes
+
+Add Python routes alongside your static content. Create a file in `routes/` — the file
+path becomes the URL, and function names map to HTTP methods:
+
+```
+my-site/
+├── content/          # Markdown pages (served by Bengal)
+├── routes/
+│   ├── search.py     # GET /search
+│   └── api/
+│       └── users.py  # GET /api/users
+└── templates/
+```
+
+```python
+# routes/search.py
+from chirp import Request, Response
+
+async def get(request: Request) -> Response:
+    query = request.query.get("q", "")
+    results = site.search(query)
+    return request.template("search.html", query=query, results=results)
+```
+
+No decorators. No base classes. No registration ceremony. If a function is named `get`,
+`post`, `put`, `delete`, or `patch`, it handles that HTTP method. If it's named `handler`,
+it handles GET.
+
+Dynamic routes share the same templates and URL space as your content. They appear in
+navigation automatically via `nav_title`, and they access the Bengal site data through
+`from purr import site`.
+
+---
+
 ## Key Ideas
 
 - **Content-reactive.** Content is a typed data structure, not a build artifact. Changes
@@ -60,9 +163,13 @@ purr.serve("my-site/")     # Live production server
   parallelism. Kida compiles templates to Python AST. Patitas parses Markdown with O(n)
   state machines. No GIL, no fork, no compromise.
 
+---
+
 ## Requirements
 
 - Python >= 3.14
+
+---
 
 ## Part of the Bengal Ecosystem
 
@@ -75,6 +182,8 @@ patitas     Markdown parser   (parses content)
 rosettes    Syntax highlighter (highlights code)
 bengal      Static site gen   (builds sites)
 ```
+
+---
 
 ## License
 
