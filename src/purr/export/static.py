@@ -176,9 +176,87 @@ class StaticExporter:
         output_dir.mkdir(parents=True, exist_ok=True)
 
     def _render_content_pages(self, output_dir: Path) -> list[ExportedFile]:
-        """Render all Bengal content pages to HTML files."""
-        # Task 2: implementation
-        return []
+        """Render all Bengal content pages to HTML files.
+
+        Uses the same rendering path as the live server: builds a Bengal template
+        context for each page, resolves the Kida template, and renders to HTML.
+
+        """
+        from bengal.rendering.context import build_page_context
+
+        from purr.content.router import _resolve_template_name
+
+        results: list[ExportedFile] = []
+
+        for page in self._site.pages:
+            permalink = self._get_page_permalink(page)
+            if not permalink:
+                continue
+
+            t0 = time.perf_counter()
+
+            template_name = _resolve_template_name(page)
+            content = page.html_content or ""
+            context = build_page_context(
+                page, self._site, content=content, lazy=True,
+            )
+
+            try:
+                html = self._render_template(template_name, context)
+            except Exception as exc:
+                msg = (
+                    f"Failed to render content page {permalink!r} "
+                    f"(template={template_name!r}): {exc}"
+                )
+                raise ExportError(msg) from exc
+
+            filepath = self._permalink_to_filepath(permalink, output_dir)
+            size = self._write_html(filepath, html)
+            elapsed = (time.perf_counter() - t0) * 1000
+
+            results.append(ExportedFile(
+                source_path=permalink,
+                output_path=filepath,
+                source_type="content",
+                size_bytes=size,
+                duration_ms=elapsed,
+            ))
+
+        return results
+
+    def _get_page_permalink(self, page: object) -> str | None:
+        """Extract the URL path for a Bengal page.
+
+        Mirrors ``ContentRouter._get_permalink`` logic.
+
+        """
+        if hasattr(page, "href") and page.href:
+            return str(page.href)
+        if hasattr(page, "_path") and page._path:
+            path = str(page._path)
+            if not path.startswith("/"):
+                path = "/" + path
+            return path
+        return None
+
+    def _render_template(self, template_name: str, context: dict) -> str:
+        """Render a Kida template to an HTML string via the Chirp app.
+
+        Falls back to direct Kida environment access if available.
+
+        """
+        # Access the Kida environment from the Chirp app
+        kida_env = (
+            getattr(self._app, "_kida_env", None)
+            or getattr(self._app, "kida_env", None)
+            or getattr(self._app, "template_env", None)
+        )
+        if kida_env is None:
+            msg = "Cannot access Kida template environment from Chirp app"
+            raise ExportError(msg)
+
+        template = kida_env.get_template(template_name)
+        return template.render(**context)
 
     def _render_dynamic_routes(self, output_dir: Path) -> list[ExportedFile]:
         """Pre-render dynamic Chirp routes with default state."""
