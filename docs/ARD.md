@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 1 — content router complete
+**Status**: Phase 2 — reactive pipeline complete
 
 ---
 
@@ -604,6 +604,6 @@ messages with file paths, line numbers, and fix suggestions. Errors don't crash 
 | ASGI serving | Pounce | `pounce.run()`, `ServerConfig` | Available |
 | Free-threading | Pounce | Thread-based workers | Available |
 | Syntax highlighting | Rosettes | Via Patitas integration | Available |
-| AST diffing | Purr (new) | `diff_documents()` | To be built |
-| Content-to-block mapping | Purr (new) | `ReactiveMapper` | To be built |
-| SSE broadcasting | Purr (new) | `Broadcaster` | To be built |
+| AST diffing | Purr | `diff_documents()` | Built |
+| Content-to-block mapping | Purr | `ReactiveMapper` | Built |
+| SSE broadcasting | Purr | `Broadcaster` | Built |

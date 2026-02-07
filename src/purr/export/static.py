@@ -8,9 +8,6 @@ For dynamic routes, it pre-renders with default state (empty query params,
 no session, etc.).
 """
 
-from __future__ import annotations
-
-
 class StaticExporter:
     """Exports a Purr application as static files.
 

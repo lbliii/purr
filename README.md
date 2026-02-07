@@ -14,8 +14,9 @@ content that changed. Add a dynamic route alongside your static content without 
 frameworks. Deploy as static files or run as a live server. The boundary between static
 site and web application disappears.
 
-**Status:** Pre-alpha — Phase 1 (content router) complete. Bengal pages served through
-Chirp with dev/build/serve modes. See [ROADMAP.md](ROADMAP.md) for the full plan.
+**Status:** Pre-alpha — Phase 2 (reactive pipeline) complete. Content changes propagate
+through AST diffing, dependency graph, and SSE broadcasting to the browser in milliseconds.
+See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ## Quick Start
 
