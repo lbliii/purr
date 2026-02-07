@@ -98,7 +98,9 @@ def discover_routes(routes_dir: Path) -> tuple[RouteDefinition, ...]:
         return ()
 
     definitions: list[RouteDefinition] = []
-    seen_paths: dict[str, Path] = {}
+    # Track (path, method) pairs to detect cross-file duplicates.
+    # Multiple methods on the same path from the same module are fine.
+    seen: dict[tuple[str, str], Path] = {}
 
     for py_file in sorted(routes_dir.rglob("*.py")):
         # Skip private files, __init__, and __pycache__ contents
@@ -113,13 +115,15 @@ def discover_routes(routes_dir: Path) -> tuple[RouteDefinition, ...]:
 
         file_defs = _extract_definitions(module, py_file, routes_dir)
         for defn in file_defs:
-            if defn.path in seen_paths:
-                msg = (
-                    f"Duplicate route path {defn.path!r}: "
-                    f"defined in {seen_paths[defn.path]} and {py_file}"
-                )
-                raise ConfigError(msg)
-            seen_paths[defn.path] = py_file
+            for method in defn.methods:
+                key = (defn.path, method)
+                if key in seen and seen[key] != py_file:
+                    msg = (
+                        f"Duplicate route {method} {defn.path!r}: "
+                        f"defined in {seen[key]} and {py_file}"
+                    )
+                    raise ConfigError(msg)
+                seen[key] = py_file
             definitions.append(defn)
 
     return tuple(definitions)

@@ -15,6 +15,9 @@ class TestPackageMetadata:
 
     def test_all_exports_resolvable(self) -> None:
         for name in purr.__all__:
+            if name == "site":
+                # site requires initialization — tested in test_site_context.py
+                continue
             getattr(purr, name)
 
     def test_invalid_attribute_raises(self) -> None:

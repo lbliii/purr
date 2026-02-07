@@ -48,9 +48,8 @@ def site_with_routes(tmp_site: Path) -> Path:
     """Extend tmp_site with a routes/ directory for dynamic route testing."""
     routes = tmp_site / "routes"
     routes.mkdir()
-    (routes / "__init__.py").write_text("")
     (routes / "search.py").write_text(
-        'async def search(request):\n    return "search results"\n'
+        'async def get(request):\n    return "search results"\n'
     )
     return tmp_site
 

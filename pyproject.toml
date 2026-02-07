@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -57,6 +57,17 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 purr = ["py.typed"]
+
+# =============================================================================
+# uv — Local source overrides for unpublished ecosystem packages
+# =============================================================================
+# bengal, chirp, and pounce are sibling repos in the same workspace.
+# kida-templates, patitas, and rosettes are published on PyPI.
+
+[tool.uv.sources]
+bengal = { path = "../bengal", editable = true }
+chirp = { path = "../chirp", editable = true }
+pounce = { path = "../pounce", editable = true }
 
 # =============================================================================
 # Ruff — Linter & Formatter
