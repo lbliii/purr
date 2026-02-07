@@ -42,6 +42,25 @@ _HANDLER_NAME = "handler"
 
 
 @dataclass(frozen=True, slots=True)
+class NavEntry:
+    """A navigation entry for a dynamic route.
+
+    Injected into template globals so templates can render nav links
+    that include both content pages and dynamic routes.
+
+    Attributes:
+        path: URL path (e.g., ``/search``).
+        title: Human-readable title for the nav link.
+        is_dynamic: Always ``True`` — distinguishes from Bengal content pages.
+
+    """
+
+    path: str
+    title: str
+    is_dynamic: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class RouteDefinition:
     """A single discovered route ready for Chirp registration.
 
@@ -104,6 +123,27 @@ def discover_routes(routes_dir: Path) -> tuple[RouteDefinition, ...]:
             definitions.append(defn)
 
     return tuple(definitions)
+
+
+def build_nav_entries(
+    definitions: tuple[RouteDefinition, ...],
+) -> tuple[NavEntry, ...]:
+    """Build navigation entries from route definitions.
+
+    Only includes routes that have a ``nav_title`` (i.e., GET handlers).
+    Entries are deduplicated by path and sorted alphabetically.
+
+    """
+    seen: set[str] = set()
+    entries: list[NavEntry] = []
+
+    for defn in definitions:
+        if defn.nav_title is not None and defn.path not in seen:
+            seen.add(defn.path)
+            entries.append(NavEntry(path=defn.path, title=defn.nav_title))
+
+    entries.sort(key=lambda e: e.path)
+    return tuple(entries)
 
 
 def _load_module(py_file: Path, routes_dir: Path) -> object | None:

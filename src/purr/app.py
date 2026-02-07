@@ -89,13 +89,13 @@ def _wire_dynamic_routes(
     """Discover and register user-defined routes from the ``routes/`` directory.
 
     Scans ``config.routes_path`` for Python modules, extracts handler functions,
-    and registers each as a Chirp route.  Returns the discovered route definitions
-    for navigation integration and banner reporting.
+    and registers each as a Chirp route.  Also injects navigation entries into
+    Chirp's template globals so templates can render nav links for dynamic routes.
 
     Returns an empty tuple if the routes directory does not exist.
 
     """
-    from purr.routes.loader import discover_routes
+    from purr.routes.loader import build_nav_entries, discover_routes
 
     definitions = discover_routes(config.routes_path)
 
@@ -105,6 +105,12 @@ def _wire_dynamic_routes(
             methods=list(defn.methods),
             name=defn.name,
         )(defn.handler)
+
+    # Inject navigation entries into template globals.
+    # Templates can access these as {{ dynamic_routes }} to build nav menus.
+    if definitions:
+        nav_entries = build_nav_entries(definitions)
+        app._template_globals["dynamic_routes"] = nav_entries  # noqa: SLF001
 
     return definitions
 
