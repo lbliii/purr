@@ -65,7 +65,9 @@ class ReactivePipeline:
             await self._handle_template_change(event)
         elif event.category == "config":
             await self._handle_config_change(event)
-        # asset and route changes are ignored for now (Phase 3/4)
+        elif event.category == "route":
+            self._handle_route_change(event)
+        # asset changes are not propagated (copied via StaticFiles middleware)
 
     async def _handle_content_change(self, event: ChangeEvent) -> None:
         """Content file changed: re-parse -> diff -> map -> broadcast."""
@@ -145,6 +147,21 @@ class ReactivePipeline:
 
         for permalink in self._broadcaster.get_subscribed_pages():
             await self._broadcaster.push_full_refresh(permalink)
+
+    def _handle_route_change(self, event: ChangeEvent) -> None:
+        """Route file changed: log a restart-required message.
+
+        Dynamic routes are loaded at startup and the Chirp route table
+        is frozen after initialization.  Hot-reloading routes would require
+        re-freezing the app, which is not supported.
+
+        """
+        import sys
+
+        print(
+            f"  Route changed: {event.path.name} — restart purr dev to apply",
+            file=sys.stderr,
+        )
 
     def _parse_content(self, path: Path) -> Document | None:
         """Parse a content file via Patitas, returning None on error."""
