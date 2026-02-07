@@ -259,9 +259,96 @@ class StaticExporter:
         return template.render(**context)
 
     def _render_dynamic_routes(self, output_dir: Path) -> list[ExportedFile]:
-        """Pre-render dynamic Chirp routes with default state."""
-        # Task 5: implementation
-        return []
+        """Pre-render dynamic Chirp routes with default state.
+
+        Only GET handlers are exported.  Routes can opt out by setting
+        ``exportable = False`` at module level in the route file.
+
+        Uses Chirp's TestClient to make synthetic requests through the full
+        ASGI pipeline, capturing the rendered HTML.
+
+        """
+        import asyncio
+
+        # Filter to GET-only, exportable routes
+        exportable = [
+            defn
+            for defn in self._routes
+            if "GET" in defn.methods and self._is_exportable(defn)
+        ]
+
+        if not exportable:
+            return []
+
+        return asyncio.run(self._render_routes_async(exportable, output_dir))
+
+    @staticmethod
+    def _is_exportable(defn: RouteDefinition) -> bool:
+        """Check whether a route has opted out of export.
+
+        A route module can set ``exportable = False`` to skip pre-rendering.
+
+        """
+        import importlib.util
+        import sys
+
+        # The module is already loaded in sys.modules from route discovery
+        module_name = None
+        for name, mod in sys.modules.items():
+            if name.startswith("purr_routes.") and hasattr(mod, "__file__"):
+                if mod.__file__ and Path(mod.__file__) == defn.source:
+                    module_name = name
+                    break
+
+        if module_name is not None:
+            module = sys.modules[module_name]
+            return getattr(module, "exportable", True) is not False
+
+        # If we can't find the module, default to exportable
+        return True
+
+    async def _render_routes_async(
+        self,
+        routes: list[RouteDefinition],
+        output_dir: Path,
+    ) -> list[ExportedFile]:
+        """Render dynamic routes via Chirp's TestClient."""
+        from chirp.testing.client import TestClient
+
+        results: list[ExportedFile] = []
+
+        async with TestClient(self._app) as client:
+            for defn in routes:
+                t0 = time.perf_counter()
+
+                try:
+                    response = await client.get(defn.path)
+                except Exception as exc:
+                    msg = (
+                        f"Failed to pre-render dynamic route {defn.path!r} "
+                        f"(source={defn.source}): {exc}"
+                    )
+                    raise ExportError(msg) from exc
+
+                body = (
+                    response.body.decode("utf-8")
+                    if isinstance(response.body, bytes)
+                    else str(response.body)
+                )
+
+                filepath = self._permalink_to_filepath(defn.path, output_dir)
+                size = self._write_html(filepath, body)
+                elapsed = (time.perf_counter() - t0) * 1000
+
+                results.append(ExportedFile(
+                    source_path=defn.path,
+                    output_path=filepath,
+                    source_type="dynamic",
+                    size_bytes=size,
+                    duration_ms=elapsed,
+                ))
+
+        return results
 
     def _copy_assets(self, output_dir: Path) -> list[ExportedFile]:
         """Copy static assets to the output directory."""
