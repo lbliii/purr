@@ -265,8 +265,9 @@ class StaticExporter:
 
     def _copy_assets(self, output_dir: Path) -> list[ExportedFile]:
         """Copy static assets to the output directory."""
-        # Task 3: implementation
-        return []
+        from purr.export.assets import copy_assets
+
+        return list(copy_assets(self._config.static_path, output_dir))
 
     def _render_error_pages(self, output_dir: Path) -> list[ExportedFile]:
         """Render error pages (404, etc.) if templates exist."""
@@ -284,7 +285,16 @@ class StaticExporter:
 
     def _fingerprint_assets(self, output_dir: Path) -> None:
         """Hash asset filenames and rewrite HTML references."""
-        # Task 6: implementation
+        from purr.export.assets import (
+            fingerprint_assets,
+            rewrite_asset_refs,
+            write_manifest,
+        )
+
+        manifest = fingerprint_assets(output_dir)
+        if manifest:
+            rewrite_asset_refs(output_dir, manifest)
+            write_manifest(output_dir, manifest)
 
     # ------------------------------------------------------------------
     # Helpers
