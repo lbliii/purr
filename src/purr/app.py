@@ -4,8 +4,6 @@ PurrApp wraps a Bengal Site and a Chirp App into a single content-reactive appli
 The three public functions (dev, build, serve) are the primary entry points.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,6 +17,7 @@ if TYPE_CHECKING:
 
     from purr.content.router import ContentRouter
     from purr.reactive.broadcaster import Broadcaster
+    from purr.routes.loader import RouteDefinition
 
 
 def _load_site(root: Path) -> Site:
@@ -81,6 +80,33 @@ def _mount_static_files(app: App, config: PurrConfig) -> None:
         from chirp.middleware import StaticFiles
 
         app.add_middleware(StaticFiles(directory=config.static_path, prefix="/static"))
+
+
+def _wire_dynamic_routes(
+    app: App,
+    config: PurrConfig,
+) -> tuple[RouteDefinition, ...]:
+    """Discover and register user-defined routes from the ``routes/`` directory.
+
+    Scans ``config.routes_path`` for Python modules, extracts handler functions,
+    and registers each as a Chirp route.  Returns the discovered route definitions
+    for navigation integration and banner reporting.
+
+    Returns an empty tuple if the routes directory does not exist.
+
+    """
+    from purr.routes.loader import discover_routes
+
+    definitions = discover_routes(config.routes_path)
+
+    for defn in definitions:
+        app.route(
+            defn.path,
+            methods=list(defn.methods),
+            name=defn.name,
+        )(defn.handler)
+
+    return definitions
 
 
 def _setup_reactive_pipeline(
@@ -157,6 +183,7 @@ def _print_banner(
     page_count: int,
     mode: str,
     *,
+    route_count: int = 0,
     reactive: bool = False,
 ) -> None:
     """Print the Purr startup banner to stderr."""
@@ -166,8 +193,14 @@ def _print_banner(
         f"Purr v{__version__} — content-reactive runtime",
         "─" * 41,
         f"  Loaded {page_count} page{'s' if page_count != 1 else ''}",
-        f"  Templates: {config.templates_path}",
     ]
+
+    if route_count > 0:
+        lines.append(
+            f"  Loaded {route_count} dynamic route{'s' if route_count != 1 else ''}"
+        )
+
+    lines.append(f"  Templates: {config.templates_path}")
 
     if reactive:
         lines.append("  Live mode active — SSE broadcasting on /__purr/events")
@@ -195,23 +228,29 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
 
     Launches a Pounce server with single-worker mode and the full reactive
     pipeline active: file watcher, AST differ, reactive mapper, and SSE
-    broadcaster.
+    broadcaster.  Dynamic routes from ``routes/`` are discovered and registered.
 
     Args:
         root: Path to the site root directory.
         **kwargs: Override PurrConfig fields.
 
     """
+    from purr import _set_site
+
     config = PurrConfig(root=Path(root), **kwargs)
 
-    # Load Bengal site
+    # Load Bengal site and make it available via purr.site
     site = _load_site(config.root)
+    _set_site(site)
 
     # Create Chirp app with debug enabled
     app = _create_chirp_app(config, debug=True)
 
     # Wire content routes
     router, page_count = _wire_content_routes(site, app)
+
+    # Wire dynamic routes from routes/ directory
+    dynamic_defs = _wire_dynamic_routes(app, config)
 
     # Set up reactive pipeline (SSE endpoint, HMR middleware, watcher)
     broadcaster, pipeline = _setup_reactive_pipeline(site, app, config, router)
@@ -223,7 +262,10 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     watcher = _start_watcher(config, pipeline)
 
     # Banner
-    _print_banner(config, page_count, mode="dev", reactive=True)
+    _print_banner(
+        config, page_count, mode="dev",
+        route_count=len(dynamic_defs), reactive=True,
+    )
 
     # Run via Pounce (single worker, dev mode)
     try:
@@ -264,19 +306,23 @@ def build(root: str | Path = ".", **kwargs: object) -> None:
 def serve(root: str | Path = ".", **kwargs: object) -> None:
     """Run the site as a live Pounce server in production.
 
-    Static content is served via Chirp routes. Dynamic routes (Phase 3)
-    will be handled per-request. Multiple Pounce workers share the frozen
-    Chirp app and immutable Bengal site data.
+    Static content is served via Chirp routes.  Dynamic routes from
+    ``routes/`` are discovered and handled per-request.  Multiple Pounce
+    workers share the frozen Chirp app and immutable Bengal site data —
+    no shared mutable state.
 
     Args:
         root: Path to the site root directory.
         **kwargs: Override PurrConfig fields.
 
     """
+    from purr import _set_site
+
     config = PurrConfig(root=Path(root), **kwargs)
 
-    # Load Bengal site
+    # Load Bengal site and make it available via purr.site
     site = _load_site(config.root)
+    _set_site(site)
 
     # Create Chirp app (production mode — no debug, no reload)
     app = _create_chirp_app(config, debug=False)
@@ -284,11 +330,17 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
     # Wire content routes
     _router, page_count = _wire_content_routes(site, app)
 
+    # Wire dynamic routes from routes/ directory
+    dynamic_defs = _wire_dynamic_routes(app, config)
+
     # Mount static files
     _mount_static_files(app, config)
 
     # Banner
-    _print_banner(config, page_count, mode="serve")
+    _print_banner(
+        config, page_count, mode="serve",
+        route_count=len(dynamic_defs),
+    )
 
     # Run via Pounce directly with multi-worker support
     from pounce.config import ServerConfig
