@@ -285,28 +285,70 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
 def build(root: str | Path = ".", **kwargs: object) -> None:
     """Export the site as static HTML files.
 
-    Delegates to Bengal's BuildOrchestrator for the full static build pipeline.
-    Output is deployable to any static hosting (CDN, GitHub Pages, S3, etc.).
+    Renders all routes (content pages + dynamic Chirp routes) to plain HTML
+    files, copies static assets, and optionally generates a sitemap.  Output
+    is deployable to any static hosting (CDN, GitHub Pages, S3, etc.).
 
     Args:
         root: Path to the site root directory.
         **kwargs: Override PurrConfig fields.
 
     """
+    from purr.export.static import ExportResult, StaticExporter
+
     config = PurrConfig(root=Path(root), **kwargs)
 
     # Load Bengal site
     site = _load_site(config.root)
 
+    # Create Chirp app for template rendering
+    app = _create_chirp_app(config)
+
+    # Wire content routes (needed for template resolution)
+    _router, page_count = _wire_content_routes(site, app)
+
+    # Discover dynamic routes
+    dynamic_defs = _wire_dynamic_routes(app, config)
+
     # Banner
-    _print_banner(config, len(site.pages), mode="build")
+    _print_banner(
+        config, page_count, mode="build",
+        route_count=len(dynamic_defs),
+    )
 
-    # Delegate to Bengal's build pipeline
-    from bengal.orchestration.build import BuildOrchestrator
-    from bengal.orchestration.build.options import BuildOptions
+    # Run static export
+    exporter = StaticExporter(
+        site=site,
+        app=app,
+        config=config,
+        routes=dynamic_defs,
+    )
+    result = exporter.export()
 
-    orchestrator = BuildOrchestrator(site)
-    orchestrator.build(BuildOptions())
+    # Print summary
+    _print_export_summary(result)
+
+
+def _print_export_summary(result: object) -> None:
+    """Print export completion summary to stderr."""
+    from purr.export.static import ExportResult
+
+    if not isinstance(result, ExportResult):
+        return
+
+    lines = [
+        "",
+        "─" * 41,
+        f"  Exported {result.total_pages} page{'s' if result.total_pages != 1 else ''}",
+    ]
+    if result.total_assets > 0:
+        lines.append(
+            f"  Copied {result.total_assets} asset{'s' if result.total_assets != 1 else ''}"
+        )
+    lines.append(f"  Output: {result.output_dir}")
+    lines.append(f"  Done in {result.duration_ms:.0f}ms")
+
+    print("\n".join(lines), file=sys.stderr)
 
 
 def serve(root: str | Path = ".", **kwargs: object) -> None:
