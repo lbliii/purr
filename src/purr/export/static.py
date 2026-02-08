@@ -357,9 +357,57 @@ class StaticExporter:
         return list(copy_assets(self._config.static_path, output_dir))
 
     def _render_error_pages(self, output_dir: Path) -> list[ExportedFile]:
-        """Render error pages (404, etc.) if templates exist."""
-        # Task 8: implementation
-        return []
+        """Render error pages (404, etc.) if templates exist.
+
+        Checks the Kida environment for a ``404.html`` template.  If found,
+        renders it with site-level context and writes to ``output/404.html``.
+        Skips silently if the template does not exist.
+
+        """
+        results: list[ExportedFile] = []
+
+        kida_env = (
+            getattr(self._app, "_kida_env", None)
+            or getattr(self._app, "kida_env", None)
+            or getattr(self._app, "template_env", None)
+        )
+        if kida_env is None:
+            return results
+
+        # Try to render 404 page
+        try:
+            template = kida_env.get_template("404.html")
+        except Exception:  # noqa: BLE001
+            # Template doesn't exist — skip silently
+            return results
+
+        t0 = time.perf_counter()
+
+        # Build minimal site-level context
+        context: dict[str, object] = {
+            "site": self._site,
+            "title": "Page Not Found",
+        }
+
+        try:
+            html = template.render(**context)
+        except Exception as exc:
+            msg = f"Failed to render 404 page: {exc}"
+            raise ExportError(msg) from exc
+
+        filepath = output_dir / "404.html"
+        size = self._write_html(filepath, html)
+        elapsed = (time.perf_counter() - t0) * 1000
+
+        results.append(ExportedFile(
+            source_path="/404.html",
+            output_path=filepath,
+            source_type="error_page",
+            size_bytes=size,
+            duration_ms=elapsed,
+        ))
+
+        return results
 
     def _generate_sitemap(
         self,
