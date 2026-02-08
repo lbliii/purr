@@ -19,6 +19,7 @@ Incremental Pipeline (Move 4):
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from patitas.nodes import Document
 
     from purr.content.watcher import ChangeEvent
+    from purr.observability.collector import StackCollector
     from purr.reactive.broadcaster import Broadcaster
     from purr.reactive.graph import DependencyGraph
 
@@ -101,11 +103,13 @@ class ReactivePipeline:
         mapper: ReactiveMapper,
         broadcaster: Broadcaster,
         site: Any,
+        collector: StackCollector | None = None,
     ) -> None:
         self._graph = graph
         self._mapper = mapper
         self._broadcaster = broadcaster
         self._site = site
+        self._collector = collector
         # Content cache: stores previous AST + source per file for incremental parsing.
         # Single-writer (watcher), replace-on-write semantics.
         self._content_cache: dict[Path, _CachedContent] = {}
@@ -162,6 +166,15 @@ class ReactivePipeline:
         if not changes:
             return  # No structural changes
 
+        if self._collector is not None:
+            added = sum(1 for c in changes if c.kind == "added")
+            removed = sum(1 for c in changes if c.kind == "removed")
+            modified = sum(1 for c in changes if c.kind == "modified")
+            self._collector.record_diff(
+                str(path), changes_count=len(changes),
+                added=added, removed=removed, modified=modified,
+            )
+
         # Find which page(s) this content file belongs to
         for page in self._site.pages:
             if not hasattr(page, "source_path") or page.source_path is None:
@@ -177,7 +190,8 @@ class ReactivePipeline:
                 continue
 
             # Attempt selective block recompilation
-            self._try_recompile_blocks(template_name)
+            t_recompile = time.perf_counter()
+            blocks_recompiled = self._try_recompile_blocks(template_name)
 
             # Map AST changes to block updates
             updates = self._mapper.map_changes(
@@ -188,7 +202,18 @@ class ReactivePipeline:
                 # Build updated page context
                 context = self._build_page_context(page)
                 count = await self._broadcaster.push_updates(updates, context)
+                duration_ms = (time.perf_counter() - t_recompile) * 1000
                 self._log_change(event, len(updates), count)
+
+                if self._collector is not None:
+                    self._collector.record_reactive_update(
+                        permalink,
+                        blocks_updated=len(updates),
+                        blocks_recompiled=blocks_recompiled,
+                        clients_notified=count,
+                        trigger_path=str(path),
+                        duration_ms=duration_ms,
+                    )
 
     async def _handle_template_change(self, event: ChangeEvent) -> None:
         """Template changed: invalidate cache, push full refresh."""
@@ -250,9 +275,19 @@ class ReactivePipeline:
         try:
             from patitas import parse
 
+            t0 = time.perf_counter()
+
             if cached is None:
                 # First parse — no previous AST to diff against
-                return parse(new_source, source_file=str(path))
+                doc = parse(new_source, source_file=str(path))
+                ms = (time.perf_counter() - t0) * 1000
+                if self._collector is not None:
+                    self._collector.record_parse(
+                        str(path), incremental=False,
+                        blocks_reparsed=len(doc.children) if doc else 0,
+                        parse_ms=ms,
+                    )
+                return doc
 
             if cached.source == new_source:
                 return cached.doc  # No change
@@ -265,7 +300,7 @@ class ReactivePipeline:
             # Use incremental parsing
             from patitas.incremental import parse_incremental
 
-            return parse_incremental(
+            doc = parse_incremental(
                 new_source,
                 cached.doc,
                 edit_start,
@@ -273,11 +308,24 @@ class ReactivePipeline:
                 new_length,
                 source_file=str(path),
             )
+            ms = (time.perf_counter() - t0) * 1000
+
+            if self._collector is not None:
+                total_blocks = len(doc.children) if doc else 0
+                old_blocks = len(cached.doc.children)
+                reused = max(0, total_blocks - (total_blocks - old_blocks + 1))
+                self._collector.record_parse(
+                    str(path), incremental=True,
+                    blocks_reused=reused,
+                    blocks_reparsed=max(1, total_blocks - reused),
+                    parse_ms=ms,
+                )
+            return doc
         except Exception as exc:  # noqa: BLE001
             print(f"  Parse error: {path.name}: {exc}", file=sys.stderr)
             return None
 
-    def _try_recompile_blocks(self, template_name: str) -> None:
+    def _try_recompile_blocks(self, template_name: str) -> int:
         """Attempt selective block recompilation for a template.
 
         Uses Kida's block_recompile module to detect which template blocks
@@ -285,6 +333,9 @@ class ReactivePipeline:
 
         This is a best-effort optimization — failures are silently ignored
         and the template will be fully recompiled on next access if needed.
+
+        Returns:
+            Number of blocks recompiled (0 if none or on failure).
 
         """
         try:
@@ -296,22 +347,22 @@ class ReactivePipeline:
             # Get the Kida environment and compiled template
             kida_env = self._graph.kida_env
             if kida_env is None:
-                return
+                return 0
 
             template = kida_env._cache.get(template_name)
             if template is None:
-                return  # Not cached; will be compiled on next access
+                return 0  # Not cached; will be compiled on next access
 
             # Need old and new AST for block comparison
             old_ast = getattr(template, "_optimized_ast", None)
             if old_ast is None:
-                return  # No AST preserved; can't compare
+                return 0  # No AST preserved; can't compare
 
             # Recompile the template to get the new AST
             try:
                 source, filename = kida_env.loader.get_source(template_name)
             except Exception:
-                return
+                return 0
 
             from kida.lexer import Lexer
             from kida.parser import Parser
@@ -329,7 +380,7 @@ class ReactivePipeline:
             # Detect block-level changes
             delta = detect_block_changes(old_ast, new_ast)
             if not delta.has_changes:
-                return  # No block changes
+                return 0  # No block changes
 
             # Recompile only the changed blocks
             recompiled = recompile_blocks(kida_env, template, new_ast, delta)
@@ -339,8 +390,17 @@ class ReactivePipeline:
                     file=sys.stderr,
                 )
 
+                # Record individual block recompile events
+                if self._collector is not None:
+                    for block_name in recompiled:
+                        self._collector.record_block_recompile(
+                            template_name, block_name, reason="content_change",
+                        )
+
+            return len(recompiled)
+
         except Exception:  # noqa: BLE001
-            pass  # Best-effort; full recompile on next access
+            return 0  # Best-effort; full recompile on next access
 
     def _build_page_context(self, page: Any) -> dict[str, Any]:
         """Build the Bengal template context for a page."""
