@@ -41,6 +41,11 @@ class DependencyGraph:
         # Cache block metadata per template to avoid repeated analysis
         self._block_meta_cache: dict[str, dict[str, frozenset[str]]] = {}
 
+    @property
+    def kida_env(self) -> Any:
+        """The Kida Environment for template introspection and recompilation."""
+        return self._kida_env
+
     def affected_pages(self, changed_paths: set[Path]) -> set[Path]:
         """Determine which source pages need updating given file changes.
 

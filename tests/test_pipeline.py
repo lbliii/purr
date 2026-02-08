@@ -13,7 +13,11 @@ from purr.content.watcher import ChangeEvent
 from purr.reactive.broadcaster import Broadcaster
 from purr.reactive.graph import DependencyGraph
 from purr.reactive.mapper import ReactiveMapper
-from purr.reactive.pipeline import ReactivePipeline
+from purr.reactive.pipeline import (
+    ReactivePipeline,
+    _CachedContent,
+    _compute_edit_region,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +60,61 @@ def pipeline(broadcaster: Broadcaster, graph: DependencyGraph) -> ReactivePipeli
 
 
 # ---------------------------------------------------------------------------
-# Tests
+# Tests: _compute_edit_region
+# ---------------------------------------------------------------------------
+
+
+class TestComputeEditRegion:
+    """Tests for the edit region computation utility."""
+
+    def test_identical_strings(self) -> None:
+        start, end, new_len = _compute_edit_region("hello", "hello")
+        assert start == 5
+        assert end == 5
+        assert new_len == 0
+
+    def test_single_char_replacement(self) -> None:
+        start, end, new_len = _compute_edit_region("hello", "hallo")
+        assert start == 1
+        assert end == 2
+        assert new_len == 1
+
+    def test_insertion(self) -> None:
+        # "helo" → "hello": the 'l' was inserted at position 3
+        # (scanning from both ends, "hel" matches front, "o" matches back)
+        start, end, new_len = _compute_edit_region("helo", "hello")
+        assert start == 3
+        assert end == 3  # zero-length range in old = pure insertion
+        assert new_len == 1
+
+    def test_deletion(self) -> None:
+        # "hello" → "helo": 'l' at position 3 was deleted
+        start, end, new_len = _compute_edit_region("hello", "helo")
+        assert start == 3
+        assert end == 4
+        assert new_len == 0
+
+    def test_append(self) -> None:
+        start, end, new_len = _compute_edit_region("abc", "abcdef")
+        assert start == 3
+        assert end == 3
+        assert new_len == 3
+
+    def test_complete_replacement(self) -> None:
+        start, end, new_len = _compute_edit_region("abc", "xyz")
+        assert start == 0
+        assert end == 3
+        assert new_len == 3
+
+    def test_empty_to_content(self) -> None:
+        start, end, new_len = _compute_edit_region("", "hello")
+        assert start == 0
+        assert end == 0
+        assert new_len == 5
+
+
+# ---------------------------------------------------------------------------
+# Tests: Pipeline content changes
 # ---------------------------------------------------------------------------
 
 
@@ -73,8 +131,11 @@ class TestPipelineContentChange:
             kind="modified",
             category="content",
         )
-        # Mock parse to return a document
-        with patch.object(pipeline, "_parse_content") as mock_parse:
+        # Mock file read and parse
+        with (
+            patch.object(Path, "read_text", return_value="# Hello\n"),
+            patch.object(pipeline, "_parse_content_incremental") as mock_parse,
+        ):
             mock_parse.return_value = MagicMock()
             await pipeline.handle_change(event)
 
@@ -95,12 +156,18 @@ class TestPipelineContentChange:
             children=(Paragraph(location=loc, children=(Text(location=loc, content="Same"),)),),
         )
         path = Path("/site/content/page.md")
+        source = "Same\n"
 
         # Seed the cache
-        pipeline._ast_cache[path] = doc
+        pipeline._content_cache[path] = _CachedContent(doc=doc, source=source)
 
         event = ChangeEvent(path=path, kind="modified", category="content")
-        with patch.object(pipeline, "_parse_content", return_value=doc):
+        with (
+            patch.object(Path, "read_text", return_value=source),
+            patch.object(
+                pipeline, "_parse_content_incremental", return_value=doc
+            ),
+        ):
             await pipeline.handle_change(event)
 
         # Same doc -> empty diff -> no updates
@@ -197,12 +264,84 @@ class TestSeedASTCache:
 
     def test_seed_populates_cache(self, pipeline: ReactivePipeline) -> None:
         """seed_ast_cache should parse all content files."""
-        with patch.object(pipeline, "_parse_content") as mock_parse:
-            mock_parse.return_value = MagicMock()
-            pipeline._site.pages[0].source_path = Path("/site/content/page.md")
+        pipeline._site.pages[0].source_path = Path("/site/content/page.md")
 
-            # Make the path "exist"
-            with patch.object(Path, "is_file", return_value=True):
-                pipeline.seed_ast_cache()
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "read_text", return_value="# Hello\n"),
+            patch("patitas.parse") as mock_parse,
+        ):
+            mock_parse.return_value = MagicMock()
+            pipeline.seed_ast_cache()
 
         assert mock_parse.called
+        assert Path("/site/content/page.md") in pipeline._content_cache
+
+
+class TestIncrementalParsing:
+    """Tests for the incremental parsing integration."""
+
+    def test_parse_content_incremental_first_time(
+        self, pipeline: ReactivePipeline
+    ) -> None:
+        """First parse (no cache) uses full parse."""
+        path = Path("/site/content/page.md")
+        source = "# Hello\n"
+
+        with patch("patitas.parse") as mock_full_parse:
+            mock_full_parse.return_value = MagicMock()
+            result = pipeline._parse_content_incremental(path, source, None)
+
+        mock_full_parse.assert_called_once()
+        assert result is not None
+
+    def test_parse_content_incremental_same_source(
+        self, pipeline: ReactivePipeline
+    ) -> None:
+        """Identical source returns cached doc without parsing."""
+        from patitas.location import SourceLocation
+        from patitas.nodes import Document
+
+        loc = SourceLocation(lineno=1, col_offset=0, offset=0, end_offset=8)
+        doc = Document(location=loc, children=())
+        source = "# Hello\n"
+        cached = _CachedContent(doc=doc, source=source)
+
+        result = pipeline._parse_content_incremental(
+            Path("/test.md"), source, cached
+        )
+        assert result is doc  # Same object — no re-parse
+
+    def test_parse_content_incremental_with_change(
+        self, pipeline: ReactivePipeline
+    ) -> None:
+        """Changed source invokes parse_incremental (not full parse)."""
+        from patitas.location import SourceLocation
+        from patitas.nodes import Document
+
+        loc = SourceLocation(lineno=1, col_offset=0, offset=0, end_offset=8)
+        old_doc = Document(location=loc, children=())
+        old_source = "# Hello\n"
+        new_source = "# World\n"
+        cached = _CachedContent(doc=old_doc, source=old_source)
+
+        # We mock the module-level import inside the method
+        mock_mod = MagicMock()
+        mock_mod.return_value = MagicMock()
+
+        import importlib
+        import sys
+
+        # Temporarily make patitas.incremental available for import
+        fake_module = type(sys)("patitas.incremental")
+        fake_module.parse_incremental = mock_mod
+        sys.modules["patitas.incremental"] = fake_module
+        try:
+            result = pipeline._parse_content_incremental(
+                Path("/test.md"), new_source, cached
+            )
+        finally:
+            sys.modules.pop("patitas.incremental", None)
+
+        mock_mod.assert_called_once()
+        assert result is not None
