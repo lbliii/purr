@@ -39,6 +39,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     build_parser.add_argument("root", nargs="?", default=".", help="Site root directory")
     build_parser.add_argument("--output", default="dist", help="Output directory")
+    build_parser.add_argument(
+        "--base-url", default="", help="Base URL for sitemap generation",
+    )
+    build_parser.add_argument(
+        "--fingerprint", action="store_true", help="Enable asset fingerprinting",
+    )
 
     # purr serve
     serve_parser = subparsers.add_parser(
@@ -74,7 +80,12 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "dev":
         dev(root=args.root, host=args.host, port=args.port)
     elif args.command == "build":
-        build(root=args.root, output=args.output)
+        build(
+            root=args.root,
+            output=args.output,
+            base_url=args.base_url,
+            fingerprint=args.fingerprint,
+        )
     elif args.command == "serve":
         serve(root=args.root, host=args.host, port=args.port, workers=args.workers)
 

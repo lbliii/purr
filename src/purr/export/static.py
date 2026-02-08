@@ -308,7 +308,6 @@ class StaticExporter:
         A route module can set ``exportable = False`` to skip pre-rendering.
 
         """
-        import importlib.util
         import sys
 
         # The module is already loaded in sys.modules from route discovery
