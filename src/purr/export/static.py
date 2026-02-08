@@ -239,13 +239,12 @@ class StaticExporter:
             return path
         return None
 
-    def _render_template(self, template_name: str, context: dict) -> str:
-        """Render a Kida template to an HTML string via the Chirp app.
+    def _get_kida_env(self) -> object:
+        """Get the Kida template environment, freezing the app if needed."""
+        # Freeze the app if not already frozen — this initializes _kida_env
+        if hasattr(self._app, "_ensure_frozen"):
+            self._app._ensure_frozen()  # noqa: SLF001
 
-        Falls back to direct Kida environment access if available.
-
-        """
-        # Access the Kida environment from the Chirp app
         kida_env = (
             getattr(self._app, "_kida_env", None)
             or getattr(self._app, "kida_env", None)
@@ -255,6 +254,11 @@ class StaticExporter:
             msg = "Cannot access Kida template environment from Chirp app"
             raise ExportError(msg)
 
+        return kida_env
+
+    def _render_template(self, template_name: str, context: dict) -> str:
+        """Render a Kida template to an HTML string via the Chirp app."""
+        kida_env = self._get_kida_env()
         template = kida_env.get_template(template_name)
         return template.render(**context)
 
@@ -280,7 +284,22 @@ class StaticExporter:
         if not exportable:
             return []
 
-        return asyncio.run(self._render_routes_async(exportable, output_dir))
+        # If we're already inside an event loop (e.g., pytest-asyncio), use
+        # a new thread to avoid "cannot call asyncio.run() from running loop".
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running — safe to use asyncio.run()
+            return asyncio.run(self._render_routes_async(exportable, output_dir))
+
+        # Running inside an existing loop — use a thread
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run, self._render_routes_async(exportable, output_dir),
+            )
+            return future.result()
 
     @staticmethod
     def _is_exportable(defn: RouteDefinition) -> bool:
@@ -366,12 +385,9 @@ class StaticExporter:
         """
         results: list[ExportedFile] = []
 
-        kida_env = (
-            getattr(self._app, "_kida_env", None)
-            or getattr(self._app, "kida_env", None)
-            or getattr(self._app, "template_env", None)
-        )
-        if kida_env is None:
+        try:
+            kida_env = self._get_kida_env()
+        except ExportError:
             return results
 
         # Try to render 404 page
