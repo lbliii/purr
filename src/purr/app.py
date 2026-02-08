@@ -120,15 +120,16 @@ def _setup_reactive_pipeline(
     app: App,
     config: PurrConfig,
     router: ContentRouter,
-) -> tuple[Broadcaster, object]:
+) -> tuple[Broadcaster, object, object]:
     """Set up the reactive pipeline for dev mode.
 
     Creates the broadcaster, dependency graph, mapper, pipeline coordinator,
     registers the SSE endpoint, and adds the HMR middleware.
 
-    Returns the Broadcaster and ReactivePipeline instances.
+    Returns the Broadcaster, ReactivePipeline, and StackCollector instances.
 
     """
+    from purr.observability import EventLog, StackCollector
     from purr.reactive.broadcaster import Broadcaster
     from purr.reactive.graph import DependencyGraph
     from purr.reactive.hmr import hmr_middleware
@@ -150,6 +151,10 @@ def _setup_reactive_pipeline(
     # Get the Kida environment from the Chirp app (if available)
     kida_env = getattr(app, "_kida_env", None) or getattr(app, "kida_env", None)
 
+    # Create the unified observability collector
+    event_log = EventLog()
+    collector = StackCollector(event_log)
+
     graph = DependencyGraph(tracer=tracer, kida_env=kida_env)
     mapper = ReactiveMapper()
     pipeline = ReactivePipeline(
@@ -157,6 +162,7 @@ def _setup_reactive_pipeline(
         mapper=mapper,
         broadcaster=broadcaster,
         site=site,
+        collector=collector,
     )
 
     # Pre-parse content to populate AST cache
@@ -168,7 +174,7 @@ def _setup_reactive_pipeline(
     # Add HMR script injection middleware
     app.add_middleware(hmr_middleware)
 
-    return broadcaster, pipeline
+    return broadcaster, pipeline, collector
 
 
 def _start_watcher(config: PurrConfig, pipeline: object) -> object:
@@ -259,7 +265,7 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     dynamic_defs = _wire_dynamic_routes(app, config)
 
     # Set up reactive pipeline (SSE endpoint, HMR middleware, watcher)
-    broadcaster, pipeline = _setup_reactive_pipeline(site, app, config, router)
+    broadcaster, pipeline, collector = _setup_reactive_pipeline(site, app, config, router)
 
     # Mount static files
     _mount_static_files(app, config)
@@ -274,8 +280,10 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     )
 
     # Run via Pounce (single worker, dev mode)
+    # Pass the StackCollector as Pounce's lifecycle_collector so
+    # connection events flow into the same EventLog as pipeline events.
     try:
-        app.run(host=config.host, port=config.port)
+        app.run(host=config.host, port=config.port, lifecycle_collector=collector)
     finally:
         # Clean shutdown
         if hasattr(watcher, "stop"):
@@ -390,6 +398,12 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
         route_count=len(dynamic_defs),
     )
 
+    # Create observability collector for production mode
+    from purr.observability import EventLog, StackCollector
+
+    event_log = EventLog()
+    collector = StackCollector(event_log)
+
     # Run via Pounce directly with multi-worker support
     from pounce.config import ServerConfig
     from pounce.server import Server
@@ -399,5 +413,5 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
         port=config.port,
         workers=config.workers,  # 0 = auto-detect via Pounce
     )
-    server = Server(server_config, app)
+    server = Server(server_config, app, lifecycle_collector=collector)
     server.run()
