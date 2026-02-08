@@ -309,15 +309,126 @@ class TestErrorPages:
 
 
 # ---------------------------------------------------------------------------
+# _get_kida_env
+# ---------------------------------------------------------------------------
+
+
+class TestGetKidaEnv:
+    """StaticExporter._get_kida_env — freezes app and retrieves env."""
+
+    def test_calls_ensure_frozen(self, tmp_path: Path) -> None:
+        app = MagicMock()
+        mock_env = MagicMock()
+        app._kida_env = mock_env
+
+        exporter = _make_exporter(tmp_path, app=app)
+        result = exporter._get_kida_env()
+
+        app._ensure_frozen.assert_called_once()
+        assert result is mock_env
+
+    def test_raises_when_no_env(self, tmp_path: Path) -> None:
+        app = MagicMock()
+        app._kida_env = None
+        app.kida_env = None
+        app.template_env = None
+
+        exporter = _make_exporter(tmp_path, app=app)
+        with pytest.raises(ExportError, match="Cannot access Kida"):
+            exporter._get_kida_env()
+
+
+# ---------------------------------------------------------------------------
+# _is_exportable
+# ---------------------------------------------------------------------------
+
+
+class TestIsExportable:
+    """StaticExporter._is_exportable — route opt-out via exportable = False."""
+
+    def test_defaults_to_true_for_unknown_module(self, tmp_path: Path) -> None:
+        from purr.routes.loader import RouteDefinition
+
+        defn = RouteDefinition(
+            path="/missing",
+            handler=lambda r: None,
+            methods=("GET",),
+            name="missing",
+            source=tmp_path / "nonexistent.py",
+            nav_title=None,
+        )
+        assert StaticExporter._is_exportable(defn) is True
+
+    def test_respects_exportable_false(self, tmp_path: Path) -> None:
+        import sys
+
+        from purr.routes.loader import RouteDefinition
+
+        # Create a fake module with exportable = False in sys.modules
+        route_file = tmp_path / "not_exported.py"
+        route_file.write_text("exportable = False")
+        module_name = "purr_routes._test_not_exported"
+
+        fake_module = type(sys)("fake_route")
+        fake_module.__file__ = str(route_file)
+        fake_module.exportable = False  # type: ignore[attr-defined]
+        sys.modules[module_name] = fake_module
+
+        try:
+            defn = RouteDefinition(
+                path="/hidden",
+                handler=lambda r: None,
+                methods=("GET",),
+                name="hidden",
+                source=route_file,
+                nav_title=None,
+            )
+            assert StaticExporter._is_exportable(defn) is False
+        finally:
+            del sys.modules[module_name]
+
+    def test_exportable_true_by_default_in_module(self, tmp_path: Path) -> None:
+        import sys
+
+        from purr.routes.loader import RouteDefinition
+
+        route_file = tmp_path / "exported.py"
+        route_file.write_text("# no exportable attr")
+        module_name = "purr_routes._test_exported"
+
+        fake_module = type(sys)("fake_route")
+        fake_module.__file__ = str(route_file)
+        sys.modules[module_name] = fake_module
+
+        try:
+            defn = RouteDefinition(
+                path="/visible",
+                handler=lambda r: None,
+                methods=("GET",),
+                name="visible",
+                source=route_file,
+                nav_title=None,
+            )
+            assert StaticExporter._is_exportable(defn) is True
+        finally:
+            del sys.modules[module_name]
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_exporter(root: Path) -> StaticExporter:
+def _make_exporter(
+    root: Path,
+    *,
+    app: object | None = None,
+) -> StaticExporter:
     """Create a minimal StaticExporter for testing helper methods."""
     from tests.conftest import make_test_site
 
     site = make_test_site(root)
-    app = MagicMock()
+    if app is None:
+        app = MagicMock()
     config = PurrConfig(root=root)
     return StaticExporter(site=site, app=app, config=config)

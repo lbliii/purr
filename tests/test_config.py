@@ -46,3 +46,19 @@ class TestPurrConfig:
         assert config.content_path == tmp_path / "pages"
         assert config.templates_path == tmp_path / "layouts"
         assert config.static_path == tmp_path / "assets"
+
+    def test_base_url_default_empty(self) -> None:
+        config = PurrConfig()
+        assert config.base_url == ""
+
+    def test_base_url_custom(self) -> None:
+        config = PurrConfig(base_url="https://example.com")
+        assert config.base_url == "https://example.com"
+
+    def test_fingerprint_default_false(self) -> None:
+        config = PurrConfig()
+        assert config.fingerprint is False
+
+    def test_fingerprint_enabled(self) -> None:
+        config = PurrConfig(fingerprint=True)
+        assert config.fingerprint is True
