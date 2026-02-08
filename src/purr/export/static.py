@@ -367,7 +367,12 @@ class StaticExporter:
         exported: list[ExportedFile],
     ) -> list[ExportedFile]:
         """Generate sitemap.xml from exported pages."""
-        # Task 7: implementation
+        from purr.export.sitemap import write_sitemap
+
+        base_url = getattr(self._config, "base_url", "")
+        result = write_sitemap(exported, base_url, output_dir)
+        if result is not None:
+            return [result]
         return []
 
     def _fingerprint_assets(self, output_dir: Path) -> None:
