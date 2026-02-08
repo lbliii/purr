@@ -14,10 +14,10 @@ content that changed. Add a dynamic route alongside your static content without 
 frameworks. Deploy as static files or run as a live server. The boundary between static
 site and web application disappears.
 
-**Status:** Pre-alpha — Phase 3 (dynamic routes) complete. Serve user-defined Python routes
-alongside Bengal content. Content changes propagate through AST diffing, dependency graph,
-and SSE broadcasting to the browser in milliseconds.
-See [ROADMAP.md](ROADMAP.md) for the full plan.
+**Status:** Pre-alpha — Phase 4 (static export) complete. All routes (content + dynamic)
+pre-rendered to static HTML files with optional asset fingerprinting and sitemap generation.
+Content changes propagate through AST diffing, dependency graph, and SSE broadcasting to
+the browser in milliseconds. See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ---
 
@@ -49,8 +49,11 @@ Purr is that layer.
 # Development server (single worker, reactive pipeline active)
 purr dev my-site/
 
-# Static export (delegates to Bengal's build pipeline)
+# Static export (renders all routes to HTML files)
 purr build my-site/
+
+# Static export with asset fingerprinting and sitemap
+purr build my-site/ --base-url https://example.com --fingerprint
 
 # Production server (multi-worker via Pounce)
 purr serve my-site/ --workers 4
@@ -62,7 +65,7 @@ Or programmatically:
 import purr
 
 purr.dev("my-site/")       # Reactive local development
-purr.build("my-site/")     # Static export
+purr.build("my-site/")     # Static export (all routes → HTML files)
 purr.serve("my-site/")     # Live production server
 ```
 
@@ -154,7 +157,8 @@ navigation automatically via `nav_title`, and they access the Bengal site data t
   you need search, APIs, or dashboards. Same templates, same server, same URL space. No
   migration, no rewrite.
 - **Three modes.** `purr dev` for reactive local development. `purr build` for static
-  export to any CDN. `purr serve` for live production with dynamic routes and real-time
+  export to any CDN — renders all routes (content + dynamic), fingerprints assets, and
+  generates a sitemap. `purr serve` for live production with dynamic routes and real-time
   updates.
 - **Integration layer.** Purr is thin by design — the hard problems are solved by Bengal
   (content pipeline), Chirp (framework), Kida (templates), Patitas (Markdown), Rosettes

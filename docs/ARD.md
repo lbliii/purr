@@ -2,7 +2,7 @@
 
 **Version**: 0.1.0-dev
 **Date**: 2026-02-07
-**Status**: Phase 3 — dynamic routes complete
+**Status**: Phase 4 — static export complete
 
 ---
 
@@ -136,13 +136,18 @@ dependencies. No circular imports.
 **Purpose:** Static file output.
 
 **Components:**
-- `StaticExporter` — renders all routes to HTML files
-- Asset copier — copies static assets to output directory
+- `StaticExporter` — renders all routes (content + dynamic) to HTML files
+- `export/assets.py` — recursive asset copying, content-hash fingerprinting, HTML reference
+  rewriting, and `manifest.json` generation
+- `export/sitemap.py` — `sitemap.xml` generation from exported pages
 
 **Constraints:**
 - Only active in `build` mode
-- Output must match live rendering for content pages
-- Dynamic routes pre-rendered with default state
+- Output must match live rendering for content pages (build parity)
+- Dynamic routes pre-rendered with default GET state (`exportable = False` to opt out)
+- Clean URLs: `/docs/intro/` writes to `output/docs/intro/index.html`
+- Asset fingerprinting is opt-in via `PurrConfig.fingerprint`
+- Sitemap generation requires `PurrConfig.base_url`
 
 ---
 
@@ -341,21 +346,54 @@ broadcaster instance — no cross-worker state.
            │
            ▼
     ┌──────────────┐
-    │ StaticExporter│  Iterate all routes (content + dynamic)
+    │ StaticExporter│  Orchestrates full export pipeline
     └──────┬───────┘
            │
-           ├── Content route:
-           │   Render page through Kida (same path as live)
-           │   Write to output/permalink/index.html
+           ├── 1. Clean output directory
            │
-           ├── Dynamic route:
-           │   Simulate request with default params
-           │   Render response
-           │   Write to output/path/index.html
+           ├── 2. Content pages:
+           │      Iterate site.pages, get permalink
+           │      Render page through Kida (same Chirp/Kida path as live)
+           │      Write to output/permalink/index.html
            │
-           └── Static assets:
-               Copy from static/ to output/static/
-               Optional fingerprinting (hash in filename)
+           ├── 3. Dynamic routes:
+           │      Filter to GET-only, exportable=True routes
+           │      Simulate GET via Chirp TestClient
+           │      Write to output/path/index.html
+           │
+           ├── 4. Static assets:
+           │      Recursive copy from static/ to output/static/
+           │      Skip hidden files (.DS_Store, __pycache__)
+           │      Optional fingerprinting (content-hash filenames)
+           │      Rewrite HTML references + write manifest.json
+           │
+           ├── 5. Error pages:
+           │      Render 404.html template if present
+           │      Write to output/404.html
+           │
+           └── 6. Sitemap:
+               Generate sitemap.xml from exported content + dynamic pages
+               Requires base_url in config (skipped with warning if empty)
+```
+
+**Data flow:**
+
+```python
+ExportedFile = dataclass(
+    source_path: str,         # e.g. "docs/intro.md" or "/search"
+    output_path: Path,        # e.g. dist/docs/intro/index.html
+    source_type: Literal["content", "dynamic", "asset", "sitemap", "error_page"],
+    size_bytes: int,
+    duration_ms: float,
+)
+
+ExportResult = dataclass(
+    files: tuple[ExportedFile, ...],
+    total_pages: int,
+    total_assets: int,
+    duration_ms: float,
+    output_dir: Path,
+)
 ```
 
 ---
@@ -426,7 +464,9 @@ broadcaster instance — no cross-worker state.
            │  ── Export Layer ───────────────────────────────────────
            │
            ├── purr/export/
-           │      └── static.py          (depends on config.py; external: bengal)
+           │      ├── static.py          (depends on config.py; external: bengal, chirp)
+           │      ├── assets.py          (no internal deps; pure I/O + hashing)
+           │      └── sitemap.py         (no internal deps; XML generation)
            │
            │  ── Application Layer ──────────────────────────────────
            │
@@ -604,6 +644,10 @@ messages with file paths, line numbers, and fix suggestions. Errors don't crash 
 | ASGI serving | Pounce | `pounce.run()`, `ServerConfig` | Available |
 | Free-threading | Pounce | Thread-based workers | Available |
 | Syntax highlighting | Rosettes | Via Patitas integration | Available |
+| Test client | Chirp | `TestClient` | Available |
 | AST diffing | Purr | `diff_documents()` | Built |
 | Content-to-block mapping | Purr | `ReactiveMapper` | Built |
 | SSE broadcasting | Purr | `Broadcaster` | Built |
+| Static export | Purr | `StaticExporter.export()` | Built |
+| Asset fingerprinting | Purr | `fingerprint_assets()`, `rewrite_asset_refs()` | Built |
+| Sitemap generation | Purr | `generate_sitemap()`, `write_sitemap()` | Built |

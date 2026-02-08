@@ -276,11 +276,14 @@ adds zero additional runtime dependencies.
 - [ ] `purr serve` runs in production with Pounce workers
 - [ ] Mixed static + dynamic example works end-to-end
 
-### 7.4 Phase 4: Static Export
+### 7.4 Phase 4: Static Export ✓
 
-- [ ] All routes (static + dynamic) exported to HTML files
-- [ ] Exported site is byte-identical to live rendering for static pages
-- [ ] Dynamic routes pre-rendered with default state
+- [x] All routes (static + dynamic) exported to HTML files
+- [x] Exported site matches live rendering for content pages (build parity)
+- [x] Dynamic routes pre-rendered with default GET state
+- [x] Asset fingerprinting with HTML reference rewriting
+- [x] Sitemap generation with base_url configuration
+- [x] 404 error page rendering
 
 ---
 

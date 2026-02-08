@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 4: Static Export** — pre-render all routes to static HTML files
+  - `export/static.py` — `StaticExporter` orchestrates the full export pipeline: content
+    page rendering, dynamic route pre-rendering, asset copying, error pages, and sitemap
+    generation. `ExportedFile` and `ExportResult` frozen dataclasses track export metadata.
+  - `export/assets.py` — recursive asset copying with hidden file skipping, opt-in
+    content-hash fingerprinting (`style.a1b2c3d4.css`), HTML reference rewriting, and
+    `manifest.json` generation mapping original to fingerprinted paths.
+  - `export/sitemap.py` — `sitemap.xml` generation from exported pages. Content and dynamic
+    pages included, assets excluded. Requires `base_url` in config.
+  - Dynamic route pre-rendering via Chirp's `TestClient` — GET routes only, with
+    `exportable = False` module-level opt-out for routes that shouldn't be pre-rendered.
+  - 404 error page rendering: exports `404.html` if the template exists.
+  - Clean URL convention: `/docs/intro/` writes to `output/docs/intro/index.html`.
+  - Output directory cleaned before each export.
+  - `base_url` and `fingerprint` fields added to `PurrConfig`.
+  - `--base-url` and `--fingerprint` CLI flags on `purr build`.
+  - `build()` in `app.py` rewritten to use `StaticExporter` (replaces direct Bengal
+    `BuildOrchestrator` delegation). Export summary printed to stderr.
+  - 75 new tests (20 exporter + 15 assets + 11 sitemap + 9 CLI + 11 integration + 9 config)
+    bringing total to 254.
+
 - **Phase 3: Dynamic Routes** — user-defined Chirp routes alongside Bengal content
   - `routes/loader.py` — file-path convention route discovery. `routes/search.py` becomes
     `GET /search`. Function names (`get`, `post`, `put`, `delete`, `patch`) map to HTTP

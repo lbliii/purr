@@ -143,8 +143,10 @@ purr/
 │
 │   # Export Layer — Static output
 ├── export/
-│   ├── __init__.py
-│   └── static.py            # Pre-render live app → static files
+│   ├── __init__.py           # Re-exports: StaticExporter, ExportedFile, ExportResult
+│   ├── static.py            # StaticExporter — pre-render all routes to files
+│   ├── assets.py            # Asset copying, fingerprinting, manifest generation
+│   └── sitemap.py           # Sitemap XML generation
 │
 │   # Application
 ├── app.py                   # PurrApp — unified Bengal + Chirp application
@@ -263,10 +265,13 @@ Renders everything to static HTML. The output is plain files deployable to any C
 
 ```bash
 purr build --output dist/
+purr build --output dist/ --base-url https://example.com --fingerprint
 ```
 
-This is Bengal's build pipeline, extended to also pre-render any dynamic Chirp routes with
-their default state. The output works without a server.
+Purr renders all content pages and dynamic routes (GET only) through the same Chirp/Kida
+pipeline used by `purr serve`, writes clean-URL HTML files, copies static assets, generates
+`sitemap.xml` (when `--base-url` is set), and optionally fingerprints assets for cache
+busting. The output works without a server.
 
 ### `purr serve` — Live Production
 
@@ -454,21 +459,52 @@ Serve user-defined Chirp routes alongside Bengal content.
 - [x] Integration tests: mixed static + dynamic routes (8 tests: coexistence, 404,
   request handling, site access, nav globals)
 
-### Phase 4: Static Export
+### Phase 4: Static Export ✓
 
 Pre-render the live app as static files, including dynamic routes.
 
 **Export pipeline:**
 
-- [ ] `export/static.py` — render all routes (static + dynamic) to files
-- [ ] Dynamic route pre-rendering with default state
-- [ ] Asset fingerprinting and manifest generation
-- [ ] Sitemap generation
+- [x] `export/static.py` — `StaticExporter` renders all routes (content + dynamic) to files
+- [x] `ExportedFile` and `ExportResult` frozen dataclasses for export metadata
+- [x] Content page rendering through the same Chirp/Kida pipeline as `purr serve`
+- [x] Dynamic route pre-rendering via Chirp's `TestClient` (GET only, `exportable = False`
+  opt-out)
+- [x] Clean URL convention: `/docs/intro/` writes to `output/docs/intro/index.html`
+- [x] Output directory cleaned before each export
+
+**Asset handling:**
+
+- [x] `export/assets.py` — recursive asset copying preserving directory structure
+- [x] Hidden file skipping (`.DS_Store`, `_private`, `__pycache__`)
+- [x] Opt-in asset fingerprinting: content-hash filenames (`style.a1b2c3d4.css`)
+- [x] HTML reference rewriting for fingerprinted assets
+- [x] `manifest.json` generation mapping original to fingerprinted paths
+
+**Sitemap and error pages:**
+
+- [x] `export/sitemap.py` — generates `sitemap.xml` from exported pages
+- [x] Sitemap includes content and dynamic pages, excludes assets
+- [x] Sitemap requires `base_url` in config (skipped with warning if empty)
+- [x] 404 page rendering: exports `404.html` if template exists
+
+**Configuration and CLI:**
+
+- [x] `base_url` and `fingerprint` fields added to `PurrConfig`
+- [x] `--base-url` and `--fingerprint` CLI flags on `purr build`
+- [x] `build()` rewritten to use `StaticExporter` (replaces direct Bengal delegation)
+- [x] Export summary printed to stderr (pages, assets, duration)
 
 **Tests:**
 
-- [ ] Unit tests for export pipeline
-- [ ] Integration test: exported site matches live rendering
+- [x] Unit tests for StaticExporter (20 tests: types, helpers, content rendering, 404,
+  output cleaning, kida env freeze, exportable opt-out)
+- [x] Unit tests for asset handling (15 tests: copy, fingerprint, rewrite, manifest)
+- [x] Unit tests for sitemap (11 tests: XML generation, URL handling, write logic)
+- [x] CLI argument parsing tests (9 tests: all flags, defaults, commands)
+- [x] Integration tests (11 tests: full pipeline, build parity, fingerprinting, dynamic
+  route pre-rendering, mixed content + assets + sitemap)
+- [x] 75 new tests bringing total to 254
 
 ### Phase 5: Polish
 
