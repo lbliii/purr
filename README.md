@@ -14,10 +14,11 @@ content that changed. Add a dynamic route alongside your static content without 
 frameworks. Deploy as static files or run as a live server. The boundary between static
 site and web application disappears.
 
-**Status:** Pre-alpha — Phase 4 (static export) complete. All routes (content + dynamic)
-pre-rendered to static HTML files with optional asset fingerprinting and sitemap generation.
-Content changes propagate through AST diffing, dependency graph, and SSE broadcasting to
-the browser in milliseconds. See [ROADMAP.md](ROADMAP.md) for the full plan.
+**Status:** Pre-alpha — Phase 5 (incremental pipeline + observability) complete. Content
+changes propagate in O(change): incremental re-parse, selective block recompile, and
+targeted SSE broadcast. Full-stack observability unifies events from Pounce connections,
+content parsing, template compilation, and browser updates into a single queryable log.
+See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ---
 
@@ -78,16 +79,19 @@ the change propagates through a typed pipeline:
 
 ```
 Edit Markdown file
-    → Patitas re-parses to typed AST (frozen, hashable nodes)
+    → Patitas incrementally re-parses only the affected blocks (O(change), not O(document))
     → ASTDiffer identifies which nodes changed (O(1) skip for unchanged subtrees)
     → DependencyGraph resolves affected pages and template blocks
+    → Kida selectively recompiles only the changed template blocks (O(changed_blocks))
     → ReactiveMapper maps AST changes to specific block updates
     → Broadcaster pushes HTML fragments via SSE
     → Browser swaps the DOM (htmx, no JS framework)
+    → Every step recorded as a typed event in the observability log
 ```
 
 This isn't hot-reload. Hot-reload rebuilds the page. Purr traces a content change through
-the dependency graph to the exact DOM element that needs updating.
+the dependency graph to the exact DOM element that needs updating — and every step is
+observable.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -106,8 +110,12 @@ the dependency graph to the exact DOM element that needs updating.
 │  SSE endpoint — /__purr/events                          │
 │                                                         │
 │  Reactive Pipeline (dev mode):                          │
-│  FileWatcher → ASTDiffer → DependencyGraph → Mapper     │
-│                                  → SSE Broadcaster      │
+│  FileWatcher → Incremental Parse → ASTDiffer → Mapper   │
+│    → Block Recompile → SSE Broadcaster                  │
+│                                                         │
+│  Observability:                                         │
+│  StackCollector ← Pounce events + pipeline events       │
+│    → EventLog (queryable ring buffer)                   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -151,8 +159,8 @@ navigation automatically via `nav_title`, and they access the Bengal site data t
 ## Key Ideas
 
 - **Content-reactive.** Content is a typed data structure, not a build artifact. Changes
-  propagate through the AST, the dependency graph, the template compiler, and into the
-  browser via SSE — surgically, in milliseconds.
+  propagate through incremental re-parse, AST diff, selective block recompile, and into
+  the browser via SSE — surgically, in O(change), not O(document).
 - **Static-to-dynamic continuum.** Start with Markdown and templates. Add Chirp routes when
   you need search, APIs, or dashboards. Same templates, same server, same URL space. No
   migration, no rewrite.
@@ -160,6 +168,9 @@ navigation automatically via `nav_title`, and they access the Bengal site data t
   export to any CDN — renders all routes (content + dynamic), fingerprints assets, and
   generates a sitemap. `purr serve` for live production with dynamic routes and real-time
   updates.
+- **Observable.** Every stage of the pipeline — connection, parse, diff, recompile,
+  broadcast — produces a typed event with nanosecond timestamps. Query the `EventLog` by
+  event type, file path, or time range. Full-stack telemetry without logging.
 - **Integration layer.** Purr is thin by design — the hard problems are solved by Bengal
   (content pipeline), Chirp (framework), Kida (templates), Patitas (Markdown), Rosettes
   (highlighting), and Pounce (server). Purr wires them together.

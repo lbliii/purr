@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Phase 5: Incremental Pipeline + Full-Stack Observability**
+
+  #### Incremental AST Pipeline
+
+  - Content changes now propagate in O(change) rather than O(document):
+    - Patitas `parse_incremental` re-parses only the affected blocks, reusing unchanged AST
+      nodes with adjusted offsets
+    - Kida `detect_block_changes` + `recompile_blocks` selectively recompile only the
+      template blocks that changed, patching the live Template object
+    - `_compute_edit_region` in the reactive pipeline identifies the minimal differing
+      byte range between old and new source text
+  - `ReactivePipeline._handle_content_change` orchestrates the full incremental path:
+    incremental parse → diff → selective block recompile → SSE broadcast
+  - Content cache stores both AST and source text (`_CachedContent`) to enable edit region
+    computation for subsequent changes
+  - Falls back to full re-parse and full recompile transparently on failure
+
+  #### Full-Stack Observability
+
+  - `purr.observability` — unified event model across the vertical stack:
+    - `ContentParsed` — records full vs incremental parse, blocks reused/reparsed, timing
+    - `ContentDiffed` — records AST diff results (added, removed, modified counts)
+    - `BuildEvent` — records build actions (render, copy_asset, write_index, etc.)
+    - `ReactiveEvent` — records SSE broadcasts (blocks updated, clients notified, timing)
+    - `BlockRecompiled` — records individual block recompilations with reason
+    - `StackEvent` — union type of all the above
+  - `EventLog` — thread-safe bounded ring buffer with query support (by event type, time
+    range, file path). Configurable capacity (default 10,000 events).
+  - `StackCollector` — unified collector that implements Pounce's `LifecycleCollector`
+    protocol. Receives connection events from Pounce workers and pipeline events from
+    Purr's reactive system, all flowing into a single `EventLog`.
+  - `ReactivePipeline` instrumented at every stage: parse, diff, block recompile, and
+    broadcast events are recorded automatically when a collector is present.
+  - `_setup_reactive_pipeline` creates the `EventLog` + `StackCollector` automatically in
+    dev mode. `dev()` passes the collector through Chirp to Pounce. `serve()` creates its
+    own collector and passes it directly to Pounce's Server.
+  - 18 new observability tests covering EventLog, StackCollector, thread safety, and event
+    immutability, bringing total to 282.
+
 - **Phase 4: Static Export** — pre-render all routes to static HTML files
   - `export/static.py` — `StaticExporter` orchestrates the full export pipeline: content
     page rendering, dynamic route pre-rendering, asset copying, error pages, and sitemap
