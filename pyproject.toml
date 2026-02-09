@@ -56,7 +56,12 @@ Changelog = "https://github.com/lbliii/purr/blob/main/CHANGELOG.md"
 where = ["src"]
 
 [tool.setuptools.package-data]
-purr = ["py.typed"]
+purr = [
+    "py.typed",
+    "theme/default/templates/*.html",
+    "theme/default/assets/css/*.css",
+    "theme/default/assets/js/*.js",
+]
 
 # =============================================================================
 # uv — Local source overrides for unpublished ecosystem packages

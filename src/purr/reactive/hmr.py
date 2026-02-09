@@ -37,13 +37,50 @@ _HMR_SCRIPT = """\
       var target = document.getElementById(el.id);
       if (target) target.outerHTML = el.outerHTML;
     }
+    _dismissError();
   });
   src.addEventListener('purr:refresh', function() {
     location.reload();
   });
+  src.addEventListener('purr:error', function(e) {
+    try { var d = JSON.parse(e.data); _showError(d); } catch(x) {}
+  });
   src.onerror = function() {
     setTimeout(function() { location.reload(); }, 2000);
   };
+  function _showError(d) {
+    _dismissError();
+    var el = document.createElement('div');
+    el.id = 'purr-error-toast';
+    el.style.cssText = 'position:fixed;bottom:1rem;right:1rem;max-width:480px;'
+      + 'background:#2d1010;border:1px solid #e74c3c;border-radius:8px;'
+      + 'padding:1rem 1.25rem;font-family:ui-monospace,monospace;font-size:0.85rem;'
+      + 'color:#f0a0a0;z-index:99999;box-shadow:0 4px 24px rgba(0,0,0,0.4);'
+      + 'line-height:1.5;word-break:break-word';
+    var title = document.createElement('strong');
+    title.style.cssText = 'display:block;color:#e74c3c;margin-bottom:0.25rem';
+    title.textContent = d.type || 'Error';
+    var msg = document.createElement('div');
+    msg.textContent = d.message || '';
+    var loc = document.createElement('div');
+    loc.style.cssText = 'margin-top:0.5rem;color:#9e9e9e;font-size:0.75rem';
+    loc.textContent = (d.file || '') + (d.line ? ':' + d.line : '');
+    var close = document.createElement('button');
+    close.textContent = 'Dismiss';
+    close.style.cssText = 'margin-top:0.75rem;padding:0.25rem 0.75rem;'
+      + 'background:#3a1515;border:1px solid #e74c3c;border-radius:4px;'
+      + 'color:#e0e0e0;cursor:pointer;font-family:inherit;font-size:0.8rem';
+    close.onclick = _dismissError;
+    el.appendChild(title);
+    el.appendChild(msg);
+    el.appendChild(loc);
+    el.appendChild(close);
+    document.body.appendChild(el);
+  }
+  function _dismissError() {
+    var old = document.getElementById('purr-error-toast');
+    if (old) old.remove();
+  }
 })();
 </script>
 """

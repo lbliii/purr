@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from bengal.core.site import Site
     from chirp import App, Request
 
+    from purr.observability.collector import StackCollector
     from purr.reactive.broadcaster import Broadcaster
 
 
@@ -22,6 +23,7 @@ _INDEX_TEMPLATE = "index.html"
 
 # SSE endpoint path for reactive updates
 SSE_ENDPOINT = "/__purr/events"
+STATS_ENDPOINT = "/__purr/stats"
 
 
 def _resolve_template_name(page: Page) -> str:
@@ -151,6 +153,41 @@ class ContentRouter:
         sse_handler.__qualname__ = "ContentRouter.purr_sse"
 
         self._app.route(SSE_ENDPOINT, name="purr:events")(sse_handler)
+
+    def register_stats_endpoint(self, collector: StackCollector) -> None:
+        """Register the ``/__purr/stats`` JSON endpoint.
+
+        Returns aggregate pipeline profiling stats and event log summary.
+
+        Args:
+            collector: StackCollector for accessing the event log.
+
+        """
+        import json
+
+        async def stats_handler(request: Request) -> Any:
+            from chirp.http.response import Response
+
+            from purr.observability.profiler import compute_aggregate_stats
+
+            stats = compute_aggregate_stats(collector.log)
+            log_stats = collector.log.stats()
+
+            payload = json.dumps(
+                {"pipeline": stats, "event_log": log_stats},
+                indent=2,
+            )
+
+            return Response(
+                body=payload,
+                status=200,
+                content_type="application/json",
+            )
+
+        stats_handler.__name__ = "purr_stats"
+        stats_handler.__qualname__ = "ContentRouter.purr_stats"
+
+        self._app.route(STATS_ENDPOINT, name="purr:stats")(stats_handler)
 
     def _make_page_handler(self, page: Page, template_name: str) -> Any:
         """Create a Chirp route handler that renders a Bengal page.

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+{#
+================================================================================
+Purr Default Theme — Base Template
+================================================================================
+Bengal provides: page, site, config, params, meta, section
+Purr adds: dynamic_routes (optional, from routes/ discovery)
+
+Minimal, content-focused layout. Users override by placing their own
+base.html in their templates/ directory (takes priority via fallback chain).
+================================================================================
+#}
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  {% block title_tag %}
+  <title>{% block title %}{{ page.title ?? site.title ?? 'Purr' }}{% end %}</title>
+  {% end %}
+
+  {% if site.description ?? none %}
+  <meta name="description" content="{{ site.description }}">
+  {% end %}
+
+  {# Theme init — prevent flash of wrong theme #}
+  <script>
+  (function(){
+    try {
+      var stored = localStorage.getItem('purr-theme');
+      var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch(e) {}
+  })();
+  </script>
+
+  <link rel="stylesheet" href="/static/css/purr.css">
+
+  {% block extra_head %}{% end %}
+</head>
+<body>
+  <header class="site-header">
+    <nav class="site-nav">
+      <a href="/" class="site-logo">{{ site.title ?? 'Purr' }}</a>
+      <div class="nav-links">
+        {% for item in (dynamic_routes ?? []) %}
+        <a href="{{ item.path }}">{{ item.title }}</a>
+        {% end %}
+        <button type="button" class="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark">
+          <span class="theme-icon-light">&#9789;</span>
+          <span class="theme-icon-dark">&#9788;</span>
+        </button>
+      </div>
+    </nav>
+  </header>
+
+  <main class="site-main">
+    {% block content %}{% end %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span class="footer-copyright">&copy; {{ site.title ?? 'Purr' }}</span>
+      <span class="footer-badge">
+        <a href="https://github.com/lbliii/bengal" aria-label="Built with Purr">
+          <span class="purr-cat">{# ᓚᘏᗢ #}&#5338;&#5656;&#5346;</span>
+        </a>
+      </span>
+    </div>
+  </footer>
+
+  <script src="/static/js/purr.js"></script>
+  {% block extra_js %}{% end %}
+</body>
+</html>

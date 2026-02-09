@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{#
+================================================================================
+Purr Default Theme — Section Index Template
+================================================================================
+Lists child pages as linked cards. Used for _index.md section pages.
+================================================================================
+#}
+
+{% block title %}{{ page.title ?? section.title ?? 'Index' }} — {{ site.title ?? 'Purr' }}{% end %}
+
+{% block content %}
+<div class="index-layout">
+  <header class="index-header">
+    <h1>{{ page.title ?? section.title ?? 'Index' }}</h1>
+    {% if content %}
+    <div class="index-description prose">
+      {{ content | safe }}
+    </div>
+    {% end %}
+  </header>
+
+  {% let children = section.pages ?? [] %}
+  {% if children | length > 0 %}
+  <div class="index-grid">
+    {% for child in children %}
+    <a href="{{ child.href ?? '#' }}" class="index-card">
+      <h2 class="index-card-title">{{ child.title ?? 'Untitled' }}</h2>
+      {% if child.description ?? child.excerpt ?? none %}
+      <p class="index-card-desc">{{ child.description ?? child.excerpt }}</p>
+      {% end %}
+    </a>
+    {% end %}
+  </div>
+  {% else %}
+  <div class="index-empty">
+    <p>No pages in this section yet.</p>
+  </div>
+  {% end %}
+</div>
+{% end %}

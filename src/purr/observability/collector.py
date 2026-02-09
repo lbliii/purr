@@ -19,8 +19,8 @@ from purr.observability.events import (
     BuildEvent,
     ContentDiffed,
     ContentParsed,
+    PipelineProfile,
     ReactiveEvent,
-    StackEvent,
     now_ns,
 )
 from purr.observability.log import EventLog
@@ -165,6 +165,35 @@ class StackCollector:
                 template_name=template_name,
                 block_name=block_name,
                 reason=reason,  # type: ignore[arg-type]
+                timestamp_ns=now_ns(),
+            )
+        )
+
+    # ----- Pipeline profiling -----
+
+    def record_pipeline_profile(
+        self,
+        trigger_path: str,
+        *,
+        blocks_updated: int = 0,
+        parse_ms: float = 0.0,
+        diff_ms: float = 0.0,
+        map_ms: float = 0.0,
+        recompile_ms: float = 0.0,
+        broadcast_ms: float = 0.0,
+        total_ms: float = 0.0,
+    ) -> None:
+        """Record a pipeline profiling event."""
+        self._log.append(
+            PipelineProfile(
+                trigger_path=trigger_path,
+                blocks_updated=blocks_updated,
+                parse_ms=parse_ms,
+                diff_ms=diff_ms,
+                map_ms=map_ms,
+                recompile_ms=recompile_ms,
+                broadcast_ms=broadcast_ms,
+                total_ms=total_ms,
                 timestamp_ns=now_ns(),
             )
         )

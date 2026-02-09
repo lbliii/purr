@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
     from purr.content.watcher import ChangeEvent
     from purr.observability.collector import StackCollector
+    from purr.observability.profiler import PipelineProfiler
     from purr.reactive.broadcaster import Broadcaster
     from purr.reactive.graph import DependencyGraph
 
@@ -110,9 +111,16 @@ class ReactivePipeline:
         self._broadcaster = broadcaster
         self._site = site
         self._collector = collector
+        self._profiler: PipelineProfiler | None = None
         # Content cache: stores previous AST + source per file for incremental parsing.
         # Single-writer (watcher), replace-on-write semantics.
         self._content_cache: dict[Path, _CachedContent] = {}
+
+        # Create profiler if collector is available
+        if collector is not None:
+            from purr.observability.profiler import PipelineProfiler
+
+            self._profiler = PipelineProfiler(collector.log)
 
     async def handle_change(self, event: ChangeEvent) -> None:
         """Process a single file change through the reactive pipeline.
@@ -132,9 +140,20 @@ class ReactivePipeline:
 
     async def _handle_content_change(self, event: ChangeEvent) -> None:
         """Content file changed: incremental parse -> diff -> map -> recompile -> broadcast."""
+        try:
+            await self._handle_content_change_inner(event)
+        except Exception as exc:
+            await self._broadcast_error(exc, event)
+
+    async def _handle_content_change_inner(self, event: ChangeEvent) -> None:
+        """Inner content change handler (unwrapped for error overlay)."""
         from purr.content.router import _resolve_template_name
 
         path = event.path
+        profiler = self._profiler
+
+        if profiler is not None:
+            profiler.begin(str(path))
 
         # Read new source
         try:
@@ -147,7 +166,11 @@ class ReactivePipeline:
         cached = self._content_cache.get(path)
 
         # Incremental or full parse
+        if profiler is not None:
+            profiler.start("parse")
         new_doc = self._parse_content_incremental(path, new_source, cached)
+        if profiler is not None:
+            profiler.stop("parse")
         if new_doc is None:
             return
 
@@ -162,7 +185,11 @@ class ReactivePipeline:
             return
 
         # Diff old vs new
+        if profiler is not None:
+            profiler.start("diff")
         changes = diff_documents(old_doc, new_doc)
+        if profiler is not None:
+            profiler.stop("diff")
         if not changes:
             return  # No structural changes
 
@@ -176,6 +203,7 @@ class ReactivePipeline:
             )
 
         # Find which page(s) this content file belongs to
+        total_blocks_updated = 0
         for page in self._site.pages:
             if not hasattr(page, "source_path") or page.source_path is None:
                 continue
@@ -190,20 +218,32 @@ class ReactivePipeline:
                 continue
 
             # Attempt selective block recompilation
+            if profiler is not None:
+                profiler.start("recompile")
             t_recompile = time.perf_counter()
             blocks_recompiled = self._try_recompile_blocks(template_name)
+            if profiler is not None:
+                profiler.stop("recompile")
 
             # Map AST changes to block updates
+            if profiler is not None:
+                profiler.start("map")
             updates = self._mapper.map_changes(
                 changes, template_name, block_metadata, permalink
             )
+            if profiler is not None:
+                profiler.stop("map")
 
             if updates:
                 # Build updated page context
+                if profiler is not None:
+                    profiler.start("broadcast")
                 context = self._build_page_context(page)
                 count = await self._broadcaster.push_updates(updates, context)
+                if profiler is not None:
+                    profiler.stop("broadcast")
                 duration_ms = (time.perf_counter() - t_recompile) * 1000
-                self._log_change(event, len(updates), count)
+                total_blocks_updated += len(updates)
 
                 if self._collector is not None:
                     self._collector.record_reactive_update(
@@ -215,8 +255,19 @@ class ReactivePipeline:
                         duration_ms=duration_ms,
                     )
 
+        # Emit the profiling event (replaces the old _log_change call)
+        if profiler is not None and total_blocks_updated > 0:
+            profiler.finish(blocks_updated=total_blocks_updated)
+
     async def _handle_template_change(self, event: ChangeEvent) -> None:
         """Template changed: invalidate cache, push full refresh."""
+        try:
+            await self._handle_template_change_inner(event)
+        except Exception as exc:
+            await self._broadcast_error(exc, event)
+
+    async def _handle_template_change_inner(self, event: ChangeEvent) -> None:
+        """Inner template change handler (unwrapped for error overlay)."""
         # Invalidate cached block metadata for the changed template
         template_name = event.path.name
         self._graph.invalidate_template_cache(template_name)
@@ -235,6 +286,26 @@ class ReactivePipeline:
                     permalink = self._get_permalink(page)
                     if permalink:
                         await self._broadcaster.push_full_refresh(permalink)
+
+    async def _broadcast_error(self, exc: BaseException, event: ChangeEvent) -> None:
+        """Broadcast an error to all connected clients via SSE."""
+        from purr.reactive.error_overlay import format_error_event
+
+        print(
+            f"  Pipeline error ({event.path.name}): {exc}",
+            file=sys.stderr,
+        )
+
+        payload = format_error_event(exc)
+        for permalink in self._broadcaster.get_subscribed_pages():
+            subscribers = self._broadcaster.get_subscribers(permalink)
+            for conn in subscribers:
+                try:
+                    from chirp.http.response import SSEEvent
+
+                    await conn.queue.put(SSEEvent(data=payload, event="purr:error"))
+                except Exception:
+                    pass
 
     async def _handle_config_change(self, event: ChangeEvent) -> None:
         """Config changed: invalidate all caches, push full refresh everywhere."""
@@ -321,7 +392,7 @@ class ReactivePipeline:
                     parse_ms=ms,
                 )
             return doc
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             print(f"  Parse error: {path.name}: {exc}", file=sys.stderr)
             return None
 
@@ -399,7 +470,7 @@ class ReactivePipeline:
 
             return len(recompiled)
 
-        except Exception:  # noqa: BLE001
+        except Exception:
             return 0  # Best-effort; full recompile on next access
 
     def _build_page_context(self, page: Any) -> dict[str, Any]:
@@ -409,7 +480,7 @@ class ReactivePipeline:
 
             content = page.html_content or ""
             return build_page_context(page, self._site, content=content, lazy=True)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return {}
 
     def _get_permalink(self, page: Any) -> str | None:
@@ -453,5 +524,5 @@ class ReactivePipeline:
                     source = path.read_text(encoding="utf-8")
                     doc = parse(source, source_file=str(path))
                     self._content_cache[path] = _CachedContent(doc=doc, source=source)
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     print(f"  Cache seed error: {path.name}: {exc}", file=sys.stderr)

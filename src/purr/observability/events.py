@@ -16,7 +16,6 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
-
 # ---------------------------------------------------------------------------
 # Content pipeline events
 # ---------------------------------------------------------------------------
@@ -139,6 +138,39 @@ class BlockRecompiled:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline profiling events
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineProfile:
+    """End-to-end timing breakdown for a single reactive update.
+
+    Attributes:
+        trigger_path: Content file path that triggered the update.
+        blocks_updated: Number of template blocks re-rendered.
+        parse_ms: Time spent parsing content.
+        diff_ms: Time spent diffing ASTs.
+        map_ms: Time spent mapping changes to blocks.
+        recompile_ms: Time spent recompiling template blocks.
+        broadcast_ms: Time spent broadcasting to clients.
+        total_ms: End-to-end wall time.
+        timestamp_ns: Monotonic nanosecond timestamp.
+
+    """
+
+    trigger_path: str
+    blocks_updated: int
+    parse_ms: float
+    diff_ms: float
+    map_ms: float
+    recompile_ms: float
+    broadcast_ms: float
+    total_ms: float
+    timestamp_ns: int
+
+
+# ---------------------------------------------------------------------------
 # Union type
 # ---------------------------------------------------------------------------
 
@@ -148,6 +180,7 @@ type StackEvent = (
     | BuildEvent
     | ReactiveEvent
     | BlockRecompiled
+    | PipelineProfile
 )
 
 

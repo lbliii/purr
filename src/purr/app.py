@@ -5,6 +5,7 @@ The three public functions (dev, build, serve) are the primary entry points.
 """
 
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,18 +40,56 @@ def _load_site(root: Path) -> Site:
 def _create_chirp_app(config: PurrConfig, *, debug: bool = False) -> App:
     """Create a Chirp App configured for the Purr site.
 
-    Sets up the Kida template engine with the site's template directory
-    and configures static file serving.
+    Uses the theme fallback chain: user templates take priority, bundled
+    default theme fills the gaps.  Template directories are resolved via
+    ``purr.theme.get_template_dirs()``.
+
+    Chirp's ``AppConfig.template_dir`` only accepts a single path, so we
+    patch ``create_environment`` to construct a Kida ``FileSystemLoader``
+    with multiple paths (which Kida natively supports).
 
     """
     from chirp import App, AppConfig
 
+    from purr.theme import get_template_dirs
+
+    template_dirs = get_template_dirs(config)
+
+    # Pass the first dir to AppConfig (Chirp expects str | Path).
     app_config = AppConfig(
-        template_dir=config.templates_path,
+        template_dir=template_dirs[0],
         debug=debug,
         host=config.host,
         port=config.port,
     )
+
+    # Patch Chirp's env creation to use Kida's multi-path loader.
+    # Kida's FileSystemLoader natively supports a list of paths, but
+    # Chirp's create_environment() stringifies the single path.
+    # The patch captures template_dirs in its closure and persists until
+    # App._freeze() is called (lazily on first request).
+    import chirp.templating.integration as _tmpl
+
+    def _create_env_multi(
+        cfg: object, filters: dict, globals_: dict,
+    ) -> object:
+        from kida import Environment, FileSystemLoader
+
+        env = Environment(
+            loader=FileSystemLoader(template_dirs),
+            autoescape=cfg.autoescape,  # type: ignore[attr-defined]
+            auto_reload=cfg.debug,  # type: ignore[attr-defined]
+            trim_blocks=cfg.trim_blocks,  # type: ignore[attr-defined]
+            lstrip_blocks=cfg.lstrip_blocks,  # type: ignore[attr-defined]
+        )
+        if filters:
+            env.update_filters(filters)
+        for name, value in globals_.items():
+            env.add_global(name, value)
+        return env
+
+    _tmpl.create_environment = _create_env_multi  # type: ignore[assignment]
+
     return App(config=app_config)
 
 
@@ -75,11 +114,20 @@ def _wire_content_routes(site: Site, app: App) -> tuple[ContentRouter, int]:
 
 
 def _mount_static_files(app: App, config: PurrConfig) -> None:
-    """Mount static file middleware if the static directory exists."""
-    if config.static_path.is_dir():
-        from chirp.middleware import StaticFiles
+    """Mount static file middleware with theme fallback.
 
-        app.add_middleware(StaticFiles(directory=config.static_path, prefix="/static"))
+    Mounts user static directory first, then the bundled theme assets.
+    Both are served under ``/static``.  User files take precedence because
+    Chirp's middleware stack is checked in registration order.
+
+    """
+    from chirp.middleware import StaticFiles
+
+    from purr.theme import get_asset_dirs
+
+    for asset_dir in get_asset_dirs(config):
+        if asset_dir.is_dir():
+            app.add_middleware(StaticFiles(directory=asset_dir, prefix="/static"))
 
 
 def _wire_dynamic_routes(
@@ -110,7 +158,7 @@ def _wire_dynamic_routes(
     # Templates can access these as {{ dynamic_routes }} to build nav menus.
     if definitions:
         nav_entries = build_nav_entries(definitions)
-        app._template_globals["dynamic_routes"] = nav_entries  # noqa: SLF001
+        app._template_globals["dynamic_routes"] = nav_entries
 
     return definitions
 
@@ -145,7 +193,7 @@ def _setup_reactive_pipeline(
         from bengal.effects import EffectTracer
 
         tracer = EffectTracer()
-    except Exception:  # noqa: BLE001
+    except Exception:
         tracer = None  # type: ignore[assignment]
 
     # Get the Kida environment from the Chirp app (if available)
@@ -168,8 +216,14 @@ def _setup_reactive_pipeline(
     # Pre-parse content to populate AST cache
     pipeline.seed_ast_cache()
 
-    # Register the SSE endpoint
+    # Register the SSE endpoint and stats endpoint
     router.register_sse_endpoint(broadcaster)
+    router.register_stats_endpoint(collector)
+
+    # Add error overlay middleware (catches render errors → styled HTML)
+    from purr.reactive.error_overlay import error_overlay_middleware
+
+    app.add_middleware(error_overlay_middleware)
 
     # Add HMR script injection middleware
     app.add_middleware(hmr_middleware)
@@ -190,46 +244,6 @@ def _start_watcher(config: PurrConfig, pipeline: object) -> object:
     return watcher
 
 
-def _print_banner(
-    config: PurrConfig,
-    page_count: int,
-    mode: str,
-    *,
-    route_count: int = 0,
-    reactive: bool = False,
-) -> None:
-    """Print the Purr startup banner to stderr."""
-    from purr import __version__
-
-    lines = [
-        f"Purr v{__version__} — content-reactive runtime",
-        "─" * 41,
-        f"  Loaded {page_count} page{'s' if page_count != 1 else ''}",
-    ]
-
-    if route_count > 0:
-        lines.append(
-            f"  Loaded {route_count} dynamic route{'s' if route_count != 1 else ''}"
-        )
-
-    lines.append(f"  Templates: {config.templates_path}")
-
-    if reactive:
-        lines.append("  Live mode active — SSE broadcasting on /__purr/events")
-
-    if mode == "dev":
-        lines.append(f"\n  http://{config.host}:{config.port}")
-        lines.append("\n  Watching for changes...")
-    elif mode == "serve":
-        workers_label = config.workers if config.workers > 0 else "auto"
-        lines.append(f"  Workers: {workers_label}")
-        lines.append(f"\n  http://{config.host}:{config.port}")
-    elif mode == "build":
-        lines.append(f"  Output: {config.output_path}")
-
-    print("\n".join(lines), file=sys.stderr)
-
-
 # ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
@@ -248,8 +262,10 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
 
     """
     from purr import _set_site
+    from purr.banner import print_banner
 
     config = PurrConfig(root=Path(root), **kwargs)
+    t0 = time.perf_counter()
 
     # Load Bengal site and make it available via purr.site
     site = _load_site(config.root)
@@ -265,7 +281,7 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     dynamic_defs = _wire_dynamic_routes(app, config)
 
     # Set up reactive pipeline (SSE endpoint, HMR middleware, watcher)
-    broadcaster, pipeline, collector = _setup_reactive_pipeline(site, app, config, router)
+    _broadcaster, pipeline, collector = _setup_reactive_pipeline(site, app, config, router)
 
     # Mount static files
     _mount_static_files(app, config)
@@ -273,10 +289,13 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     # Start file watcher in background
     watcher = _start_watcher(config, pipeline)
 
+    load_ms = (time.perf_counter() - t0) * 1000
+
     # Banner
-    _print_banner(
+    print_banner(
         config, page_count, mode="dev",
         route_count=len(dynamic_defs), reactive=True,
+        load_ms=load_ms,
     )
 
     # Run via Pounce (single worker, dev mode)
@@ -302,9 +321,11 @@ def build(root: str | Path = ".", **kwargs: object) -> None:
         **kwargs: Override PurrConfig fields.
 
     """
-    from purr.export.static import ExportResult, StaticExporter
+    from purr.banner import print_banner
+    from purr.export.static import StaticExporter
 
     config = PurrConfig(root=Path(root), **kwargs)
+    t0 = time.perf_counter()
 
     # Load Bengal site
     site = _load_site(config.root)
@@ -318,10 +339,13 @@ def build(root: str | Path = ".", **kwargs: object) -> None:
     # Discover dynamic routes
     dynamic_defs = _wire_dynamic_routes(app, config)
 
+    load_ms = (time.perf_counter() - t0) * 1000
+
     # Banner
-    _print_banner(
+    print_banner(
         config, page_count, mode="build",
         route_count=len(dynamic_defs),
+        load_ms=load_ms,
     )
 
     # Run static export
@@ -373,8 +397,10 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
 
     """
     from purr import _set_site
+    from purr.banner import print_banner
 
     config = PurrConfig(root=Path(root), **kwargs)
+    t0 = time.perf_counter()
 
     # Load Bengal site and make it available via purr.site
     site = _load_site(config.root)
@@ -392,10 +418,13 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
     # Mount static files
     _mount_static_files(app, config)
 
+    load_ms = (time.perf_counter() - t0) * 1000
+
     # Banner
-    _print_banner(
+    print_banner(
         config, page_count, mode="serve",
         route_count=len(dynamic_defs),
+        load_ms=load_ms,
     )
 
     # Create observability collector for production mode
