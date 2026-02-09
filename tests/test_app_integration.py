@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -11,6 +12,7 @@ from purr.app import (
     _create_chirp_app,
     _load_site,
     _mount_static_files,
+    _start_watcher,
     _wire_content_routes,
 )
 from purr.config import PurrConfig
@@ -191,3 +193,99 @@ class TestEndToEndRouting:
         async with TestClient(app) as client:
             response = await client.get("/nonexistent/")
             assert response.status == 404
+
+
+class TestStartWatcher:
+    """_start_watcher — lifecycle hooks wire watcher → pipeline."""
+
+    def test_registers_startup_and_shutdown_hooks(self, tmp_site: Path) -> None:
+        """_start_watcher should register on_startup and on_shutdown on the app."""
+        from chirp import App, AppConfig
+
+        config = PurrConfig(root=tmp_site)
+        app = App(config=AppConfig(template_dir=tmp_site / "templates"))
+        pipeline = MagicMock()
+
+        hooks_before = len(app._startup_hooks)
+        shutdown_before = len(app._shutdown_hooks)
+
+        _start_watcher(config, pipeline, app)
+
+        assert len(app._startup_hooks) == hooks_before + 1
+        assert len(app._shutdown_hooks) == shutdown_before + 1
+
+    @pytest.mark.asyncio
+    async def test_startup_hook_starts_watcher(self, tmp_site: Path) -> None:
+        """The registered startup hook should start the watcher thread."""
+        from chirp import App, AppConfig
+
+        config = PurrConfig(root=tmp_site)
+        app = App(config=AppConfig(template_dir=tmp_site / "templates"))
+        pipeline = MagicMock()
+
+        watcher = _start_watcher(config, pipeline, app)
+
+        # Watcher should NOT be running yet (starts on startup hook)
+        assert not watcher.is_running
+
+        # Simulate calling the startup hook
+        startup_hook = app._startup_hooks[-1]
+        await startup_hook()
+
+        assert watcher.is_running
+
+        # Simulate calling the shutdown hook to clean up
+        shutdown_hook = app._shutdown_hooks[-1]
+        await shutdown_hook()
+
+        assert not watcher.is_running
+
+    @pytest.mark.asyncio
+    async def test_event_consumption_wires_to_pipeline(self, tmp_site: Path) -> None:
+        """Events from the watcher queue should reach pipeline.handle_change."""
+        import asyncio
+
+        from chirp import App, AppConfig
+
+        from purr.content.watcher import ChangeEvent
+        from purr.reactive.broadcaster import Broadcaster
+        from purr.reactive.graph import DependencyGraph
+        from purr.reactive.mapper import ReactiveMapper
+        from purr.reactive.pipeline import ReactivePipeline
+
+        config = PurrConfig(root=tmp_site)
+        app = App(config=AppConfig(template_dir=tmp_site / "templates"))
+
+        site = MagicMock()
+        site.pages = []
+        broadcaster = Broadcaster()
+        graph = DependencyGraph(tracer=MagicMock(), kida_env=MagicMock())
+        pipeline = ReactivePipeline(
+            graph=graph, mapper=ReactiveMapper(), broadcaster=broadcaster, site=site,
+        )
+
+        watcher = _start_watcher(config, pipeline, app)
+
+        # Fire the startup hook
+        startup_hook = app._startup_hooks[-1]
+        await startup_hook()
+
+        # Inject an event directly into the watcher's queue
+        event = ChangeEvent(
+            path=tmp_site / "static" / "style.css",
+            kind="modified",
+            category="asset",
+        )
+        watcher._queue.put_nowait(event)
+
+        # Give the consumer task a tick to process
+        await asyncio.sleep(0.05)
+
+        # The asset handler pushes full refresh — no subscribers, so nothing
+        # to receive, but the pipeline should have processed without error.
+        # Verify by checking no items remain in the queue.
+        assert watcher._queue.empty()
+
+        # Clean up
+        shutdown_hook = app._shutdown_hooks[-1]
+        await shutdown_hook()

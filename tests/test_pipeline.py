@@ -259,6 +259,50 @@ class TestPipelineConfigChange:
         assert not c2.queue.empty()
 
 
+class TestPipelineAssetChange:
+    """Tests for handling static asset changes."""
+
+    @pytest.mark.asyncio
+    async def test_asset_change_refreshes_all_subscribers(
+        self, pipeline: ReactivePipeline, broadcaster: Broadcaster
+    ) -> None:
+        """Asset change should push full refresh to every connected client."""
+        from purr.reactive.broadcaster import SSEConnection
+
+        c1 = SSEConnection(client_id="c1", permalink="/a/")
+        c2 = SSEConnection(client_id="c2", permalink="/b/")
+        broadcaster.subscribe("/a/", c1)
+        broadcaster.subscribe("/b/", c2)
+
+        event = ChangeEvent(
+            path=Path("/site/static/style.css"),
+            kind="modified",
+            category="asset",
+        )
+        await pipeline.handle_change(event)
+
+        assert not c1.queue.empty()
+        assert not c2.queue.empty()
+        item1 = c1.queue.get_nowait()
+        item2 = c2.queue.get_nowait()
+        assert item1.event == "purr:refresh"
+        assert item2.event == "purr:refresh"
+
+    @pytest.mark.asyncio
+    async def test_asset_change_with_no_subscribers(
+        self, pipeline: ReactivePipeline
+    ) -> None:
+        """Asset change with no connected clients is a harmless no-op."""
+        event = ChangeEvent(
+            path=Path("/site/static/logo.png"),
+            kind="created",
+            category="asset",
+        )
+        # Should not raise
+        await pipeline.handle_change(event)
+        assert pipeline._broadcaster.subscriber_count == 0
+
+
 class TestSeedASTCache:
     """Tests for seed_ast_cache()."""
 
