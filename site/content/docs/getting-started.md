@@ -12,8 +12,6 @@ tags:
 uv add bengal-purr
 ```
 
-hihihi
-
 ## Create a Site
 
 Create a directory with some Markdown content:
