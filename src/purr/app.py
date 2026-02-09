@@ -278,16 +278,50 @@ def _setup_reactive_pipeline(
     return broadcaster, pipeline, collector
 
 
-def _start_watcher(config: PurrConfig, pipeline: object) -> object:
-    """Start the ContentWatcher in a background thread.
+def _start_watcher(config: PurrConfig, pipeline: object, app: App) -> object:
+    """Wire the ContentWatcher to the reactive pipeline via Chirp lifecycle hooks.
 
-    Returns the ContentWatcher instance (for shutdown coordination).
+    Registers ``on_startup`` / ``on_shutdown`` hooks on *app* so that the
+    watcher thread and its async consumer task live inside the event loop
+    managed by Pounce.
+
+    Flow:
+        on_startup  → start watcher thread + spawn ``_consume_events`` task
+        file change → watcher queue → consumer task → pipeline.handle_change()
+        on_shutdown → stop watcher thread + cancel consumer task
+
+    Returns the ContentWatcher instance (for external reference, if needed).
 
     """
+    import asyncio
+
     from purr.content.watcher import ContentWatcher
+    from purr.reactive.pipeline import ReactivePipeline
 
     watcher = ContentWatcher(config)
-    watcher.start()
+    _task: asyncio.Task[None] | None = None
+
+    @app.on_startup
+    async def _start_event_consumer() -> None:
+        nonlocal _task
+        watcher.start()
+
+        async def _consume_events() -> None:
+            assert isinstance(pipeline, ReactivePipeline)
+            async for event in watcher.changes():
+                try:
+                    await pipeline.handle_change(event)
+                except Exception as exc:
+                    print(f"  Pipeline error: {exc}", file=sys.stderr)
+
+        _task = asyncio.create_task(_consume_events())
+
+    @app.on_shutdown
+    async def _stop_event_consumer() -> None:
+        watcher.stop()
+        if _task is not None and not _task.done():
+            _task.cancel()
+
     return watcher
 
 
@@ -333,8 +367,8 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     # Mount static files
     _mount_static_files(app, config)
 
-    # Start file watcher in background
-    watcher = _start_watcher(config, pipeline)
+    # Wire file watcher → reactive pipeline (starts on app startup)
+    _start_watcher(config, pipeline, app)
 
     load_ms = (time.perf_counter() - t0) * 1000
 
@@ -348,12 +382,8 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     # Run via Pounce (single worker, dev mode)
     # Pass the StackCollector as Pounce's lifecycle_collector so
     # connection events flow into the same EventLog as pipeline events.
-    try:
-        app.run(host=config.host, port=config.port, lifecycle_collector=collector)
-    finally:
-        # Clean shutdown
-        if hasattr(watcher, "stop"):
-            watcher.stop()
+    # Watcher shutdown is handled by the on_shutdown hook registered above.
+    app.run(host=config.host, port=config.port, lifecycle_collector=collector)
 
 
 def build(root: str | Path = ".", **kwargs: object) -> None:
