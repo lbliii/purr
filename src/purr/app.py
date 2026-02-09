@@ -21,8 +21,29 @@ if TYPE_CHECKING:
     from purr.routes.loader import RouteDefinition
 
 
+def _parse_pages(site: Site) -> None:
+    """Parse markdown content for all discovered pages.
+
+    Bengal separates discovery from parsing.  Rather than pulling in the
+    full ``RenderingPipeline`` / ``BuildOrchestrator`` machinery, we use
+    Patitas directly for a lightweight parse pass that populates each
+    page's ``html_content``.
+    """
+    from patitas import parse, render
+
+    for page in site.pages:
+        raw = getattr(page, "_raw_content", "") or ""
+        if not raw:
+            continue
+        doc = parse(raw)
+        page.html_content = render(doc)
+
+
 def _load_site(root: Path) -> Site:
     """Load a Bengal site from the given root directory.
+
+    Loads configuration via ``Site.from_config()`` and then discovers
+    content (pages, sections, assets) via ``ContentOrchestrator``.
 
     Raises:
         ConfigError: If the site cannot be loaded (missing config, bad structure).
@@ -31,7 +52,21 @@ def _load_site(root: Path) -> Site:
     try:
         from bengal.core.site import Site
 
-        return Site.from_config(root)
+        site = Site.from_config(root)
+
+        # Discover content — Site.from_config only loads configuration,
+        # the ContentOrchestrator populates pages and sections.
+        from bengal.orchestration.content import ContentOrchestrator
+
+        orchestrator = ContentOrchestrator(site)
+        orchestrator.discover()
+
+        # Parse markdown to HTML — Bengal separates discovery from parsing.
+        # We use Patitas directly for a lightweight parse pass rather than
+        # pulling in the full RenderingPipeline + BuildOrchestrator.
+        _parse_pages(site)
+
+        return site
     except Exception as exc:
         msg = f"Failed to load Bengal site from {root}: {exc}"
         raise ConfigError(msg) from exc
@@ -66,13 +101,24 @@ def _create_chirp_app(config: PurrConfig, *, debug: bool = False) -> App:
     # Patch Chirp's env creation to use Kida's multi-path loader.
     # Kida's FileSystemLoader natively supports a list of paths, but
     # Chirp's create_environment() stringifies the single path.
-    # The patch captures template_dirs in its closure and persists until
-    # App._freeze() is called (lazily on first request).
-    import chirp.templating.integration as _tmpl
+    #
+    # Chirp's app.py binds ``create_environment`` via a ``from`` import,
+    # so we must patch the name in ``chirp.app`` directly.  The patch is
+    # guard-claused: it only activates when ``cfg.template_dir`` matches
+    # the Purr app's primary template dir.  For any other App the
+    # original function is called, preventing leakage in tests.
+    import chirp.app as _chirp_app
 
-    def _create_env_multi(
+    _orig_create_env = _chirp_app.create_environment
+    _primary_dir = str(template_dirs[0])
+
+    def _create_env_guarded(
         cfg: object, filters: dict, globals_: dict,
     ) -> object:
+        # Only apply multi-path loading for the Purr-managed app.
+        if str(getattr(cfg, "template_dir", None)) != _primary_dir:
+            return _orig_create_env(cfg, filters, globals_)
+
         from kida import Environment, FileSystemLoader
 
         env = Environment(
@@ -88,7 +134,7 @@ def _create_chirp_app(config: PurrConfig, *, debug: bool = False) -> App:
             env.add_global(name, value)
         return env
 
-    _tmpl.create_environment = _create_env_multi  # type: ignore[assignment]
+    _chirp_app.create_environment = _create_env_guarded  # type: ignore[assignment]
 
     return App(config=app_config)
 

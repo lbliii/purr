@@ -1,0 +1,12 @@
+[site]
+title = "Purr Demo"
+description = "Content-reactive runtime for Python 3.14t"
+baseurl = "/"
+
+[build]
+content_dir = "content"
+output_dir = "dist"
+theme = "default"
+
+[markdown]
+parser = "patitas"
