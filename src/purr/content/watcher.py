@@ -117,8 +117,8 @@ class ContentWatcher:
         try:
             async for raw_changes in awatch(
                 self._config.root,
-                debounce=300,
-                step=100,
+                debounce=50,
+                step=50,
             ):
                 for change_type, path_str in raw_changes:
                     path = Path(path_str)

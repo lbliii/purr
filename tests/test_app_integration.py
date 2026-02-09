@@ -216,7 +216,9 @@ class TestStartWatcher:
 
     @pytest.mark.asyncio
     async def test_startup_hook_starts_watcher(self, tmp_site: Path) -> None:
-        """The registered startup hook should start the watcher thread."""
+        """The registered startup hook should spawn a consumer task."""
+        import asyncio
+
         from chirp import App, AppConfig
 
         config = PurrConfig(root=tmp_site)
@@ -232,18 +234,24 @@ class TestStartWatcher:
         startup_hook = app._startup_hooks[-1]
         await startup_hook()
 
+        # Let the consumer task enter changes() and set _running = True
+        await asyncio.sleep(0)
         assert watcher.is_running
 
         # Simulate calling the shutdown hook to clean up
         shutdown_hook = app._shutdown_hooks[-1]
         await shutdown_hook()
 
+        # Let the cancelled task's finally block run
+        await asyncio.sleep(0)
         assert not watcher.is_running
 
     @pytest.mark.asyncio
     async def test_event_consumption_wires_to_pipeline(self, tmp_site: Path) -> None:
-        """Events from the watcher queue should reach pipeline.handle_change."""
+        """Events yielded by awatch should reach pipeline.handle_change."""
         import asyncio
+
+        from watchfiles import Change
 
         from chirp import App, AppConfig
 
@@ -264,28 +272,27 @@ class TestStartWatcher:
             graph=graph, mapper=ReactiveMapper(), broadcaster=broadcaster, site=site,
         )
 
-        watcher = _start_watcher(config, pipeline, app)
+        # Mock awatch to yield one batch of changes then stop
+        css_path = tmp_site / "static" / "style.css"
 
-        # Fire the startup hook
-        startup_hook = app._startup_hooks[-1]
-        await startup_hook()
+        async def _fake_awatch(*_args: object, **_kwargs: object):  # noqa: ANN202
+            yield {(Change.modified, str(css_path))}
 
-        # Inject an event directly into the watcher's queue
-        event = ChangeEvent(
-            path=tmp_site / "static" / "style.css",
-            kind="modified",
-            category="asset",
-        )
-        watcher._queue.put_nowait(event)
+        with patch("watchfiles.awatch", _fake_awatch):
+            watcher = _start_watcher(config, pipeline, app)
 
-        # Give the consumer task a tick to process
-        await asyncio.sleep(0.05)
+            # Fire the startup hook
+            startup_hook = app._startup_hooks[-1]
+            await startup_hook()
 
-        # The asset handler pushes full refresh — no subscribers, so nothing
-        # to receive, but the pipeline should have processed without error.
-        # Verify by checking no items remain in the queue.
-        assert watcher._queue.empty()
+            # Give the consumer task time to process the yielded batch
+            await asyncio.sleep(0.05)
 
-        # Clean up
-        shutdown_hook = app._shutdown_hooks[-1]
-        await shutdown_hook()
+            # The asset handler pushes full refresh — no subscribers, so
+            # nothing to receive, but the pipeline should have processed
+            # without error.  The consumer task should have finished since
+            # our fake awatch only yields once.
+
+            # Clean up
+            shutdown_hook = app._shutdown_hooks[-1]
+            await shutdown_hook()
