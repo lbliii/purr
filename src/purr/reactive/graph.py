@@ -29,22 +29,32 @@ class DependencyGraph:
     Used by the reactive mapper to determine which template blocks need
     re-rendering when a content change is detected.
 
+    The Kida environment is resolved lazily via the Chirp ``app`` reference
+    because the environment is not created until the app is frozen (first
+    request or ``app.run()``), which happens after the pipeline is set up.
+
     Args:
         tracer: Bengal's EffectTracer instance for file-level dependency queries.
-        kida_env: Kida's Environment instance for template introspection.
+        app: Chirp App instance.  The Kida environment is read from
+            ``app._kida_env`` on first access (after freeze).
 
     """
 
-    def __init__(self, tracer: Any, kida_env: Any) -> None:
+    def __init__(self, tracer: Any, app: Any) -> None:
         self._tracer = tracer
-        self._kida_env = kida_env
+        self._app = app
         # Cache block metadata per template to avoid repeated analysis
         self._block_meta_cache: dict[str, dict[str, frozenset[str]]] = {}
 
     @property
     def kida_env(self) -> Any:
-        """The Kida Environment for template introspection and recompilation."""
-        return self._kida_env
+        """The Kida Environment for template introspection and recompilation.
+
+        Resolved lazily from the Chirp app because the environment is
+        created during ``_freeze()`` which runs after pipeline setup.
+
+        """
+        return getattr(self._app, "_kida_env", None)
 
     def affected_pages(self, changed_paths: set[Path]) -> set[Path]:
         """Determine which source pages need updating given file changes.
@@ -73,7 +83,11 @@ class DependencyGraph:
         deps: dict[str, frozenset[str]] = {}
 
         try:
-            template = self._kida_env.get_template(template_name)
+            env = self.kida_env
+            if env is None:
+                # Don't cache — env may become available after freeze.
+                return deps
+            template = env.get_template(template_name)
             metadata = template.block_metadata()
 
             for block_name, block_meta in metadata.items():

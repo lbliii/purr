@@ -32,12 +32,14 @@ def broadcaster() -> Broadcaster:
 
 @pytest.fixture
 def graph() -> DependencyGraph:
-    """DependencyGraph with mocked tracer and env."""
+    """DependencyGraph with mocked tracer and app (lazy kida_env)."""
     tracer = MagicMock()
     tracer.outputs_needing_rebuild.return_value = set()
     env = MagicMock()
     env.get_template.side_effect = KeyError("not found")
-    return DependencyGraph(tracer, env)
+    app = MagicMock()
+    app._kida_env = env
+    return DependencyGraph(tracer, app)
 
 
 @pytest.fixture

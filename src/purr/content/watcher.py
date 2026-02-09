@@ -6,12 +6,14 @@ When a change is detected, triggers the appropriate pipeline path:
 - Content file changed -> re-parse -> AST diff -> reactive update
 - Template changed -> recompile -> scope-based refresh
 - Config changed -> full dependency cascade
+
+Uses ``watchfiles.awatch`` (async) so the entire watcher lives inside the
+event loop — no background threads, no cross-boundary queues, and no
+event-loop binding issues on Python 3.14t free-threaded builds.
 """
 
 from __future__ import annotations
 
-import asyncio
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -84,82 +86,47 @@ def categorize_change(path: Path, config: PurrConfig) -> str | None:
 class ContentWatcher:
     """Watches for file changes and triggers reactive updates.
 
-    Uses watchfiles for efficient filesystem monitoring. Categorizes changes
-    by type (content, template, config, asset) and routes to the appropriate
-    handler in the reactive pipeline.
+    Uses ``watchfiles.awatch`` for efficient async filesystem monitoring.
+    Categorizes changes by type (content, template, config, asset, route)
+    and yields them for consumption by the reactive pipeline.
 
-    The watcher runs watchfiles in a background thread and bridges events
-    to an asyncio queue for consumption by the reactive pipeline.
+    Lifecycle is managed entirely via async iteration and task cancellation
+    — no background threads or queues required.
 
     """
 
     def __init__(self, config: PurrConfig) -> None:
         self._config = config
-        self._queue: asyncio.Queue[ChangeEvent] = asyncio.Queue()
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
+        self._running = False
 
     @property
     def is_running(self) -> bool:
-        """Whether the watcher background thread is active."""
-        return self._thread is not None and self._thread.is_alive()
-
-    def start(self) -> None:
-        """Start watching for file changes in a background thread."""
-        if self.is_running:
-            return
-
-        self._stop_event.clear()
-        self._thread = threading.Thread(
-            target=self._watch_loop,
-            name="purr-watcher",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def stop(self) -> None:
-        """Signal the watcher to stop and wait for the thread to finish."""
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
-            self._thread = None
+        """Whether the async watcher is actively iterating."""
+        return self._running
 
     async def changes(self) -> AsyncIterator[ChangeEvent]:
-        """Async iterator that yields ChangeEvent objects as they occur.
+        """Async iterator that yields ``ChangeEvent`` objects as they occur.
 
-        Blocks until a change is available or the watcher is stopped.
+        The iterator runs until the task is cancelled (the expected shutdown
+        mechanism).  Cancellation cleanly tears down ``awatch``.
 
         """
-        while self.is_running or not self._queue.empty():
-            try:
-                event = await asyncio.wait_for(self._queue.get(), timeout=0.5)
-                yield event
-            except TimeoutError:
-                if not self.is_running:
-                    break
+        from watchfiles import awatch
 
-    def _watch_loop(self) -> None:
-        """Background thread: run watchfiles and push events to the queue."""
-        from watchfiles import watch
+        self._running = True
+        try:
+            async for raw_changes in awatch(
+                self._config.root,
+                debounce=300,
+                step=100,
+            ):
+                for change_type, path_str in raw_changes:
+                    path = Path(path_str)
+                    category = categorize_change(path, self._config)
+                    if category is None:
+                        continue
 
-        watch_path = self._config.root
-
-        for raw_changes in watch(
-            watch_path,
-            stop_event=self._stop_event,
-            debounce=300,
-            step=100,
-        ):
-            for change_type, path_str in raw_changes:
-                path = Path(path_str)
-                category = categorize_change(path, self._config)
-                if category is None:
-                    continue
-
-                kind = _CHANGE_KIND_MAP.get(change_type, "modified")
-                event = ChangeEvent(path=path, kind=kind, category=category)
-
-                try:
-                    self._queue.put_nowait(event)
-                except asyncio.QueueFull:
-                    pass  # Drop event if queue is full (unlikely)
+                    kind = _CHANGE_KIND_MAP.get(change_type, "modified")
+                    yield ChangeEvent(path=path, kind=kind, category=category)
+        finally:
+            self._running = False

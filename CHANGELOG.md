@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reactive pipeline: live updates not reaching the browser**
+  - `PurrConfig` now resolves relative `root` paths to absolute in `__post_init__`, fixing a
+    silent failure where `watchfiles` (absolute paths) could not be matched against a relative
+    `config.root` via `Path.relative_to()`, causing all change events to be dropped.
+  - `DependencyGraph` now lazily resolves the Kida environment from the Chirp app via a
+    `kida_env` property, fixing `None` environment during pipeline setup (before app freeze).
+    Empty results are no longer cached when the env is unavailable.
+  - `CONTENT_CONTEXT_MAP` in the reactive mapper updated to use actual template context
+    variable names (`content`, `toc`, `page`) matching what Kida's `DependencyWalker` detects,
+    replacing incorrect paths (`page.body`, `page.toc`).
+  - Default `page.html` template content block now includes `id="purr-content"` for HMR
+    surgical DOM swaps.
+  - Pipeline falls back to `purr:refresh` (full page reload) when the fragment update path
+    produces zero block updates.
+
+- **SSE `StopAsyncIteration` and `RuntimeError` noise in terminal**
+  - Broadcaster's `client_generator` now catches `GeneratorExit` alongside
+    `asyncio.CancelledError` to suppress `StopAsyncIteration` during cleanup.
+  - Chirp's `produce_events` replaced `asyncio.wait_for(asyncio.shield(...))` with
+    `asyncio.wait()` to avoid shield-callback noise, and wraps `send()` calls in
+    `try/except RuntimeError` to handle client disconnections gracefully.
+  - `ReactivePipeline._update_page_html` re-renders markdown to HTML and updates the Bengal
+    `Page` object on every content change, ensuring manual refreshes always show current content.
+
 ### Added
 
 - **Phase 5: Incremental Pipeline + Full-Stack Observability**

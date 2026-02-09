@@ -259,7 +259,7 @@ class TestStartWatcher:
         site = MagicMock()
         site.pages = []
         broadcaster = Broadcaster()
-        graph = DependencyGraph(tracer=MagicMock(), kida_env=MagicMock())
+        graph = DependencyGraph(tracer=MagicMock(), app=app)
         pipeline = ReactivePipeline(
             graph=graph, mapper=ReactiveMapper(), broadcaster=broadcaster, site=site,
         )

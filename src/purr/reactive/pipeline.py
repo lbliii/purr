@@ -45,6 +45,22 @@ class _CachedContent:
     source: str
 
 
+def _strip_frontmatter(source: str) -> str:
+    """Strip YAML frontmatter from markdown source, returning the body.
+
+    Frontmatter is delimited by ``---`` on its own line at the start of the file.
+    If no valid frontmatter is found, returns the full source unchanged.
+
+    """
+    if not source.startswith("---"):
+        return source
+    end = source.find("\n---", 3)
+    if end == -1:
+        return source
+    # Skip past the closing "---" and strip leading blank lines
+    return source[end + 4:].lstrip("\n")
+
+
 def _compute_edit_region(old: str, new: str) -> tuple[int, int, int]:
     """Compute the minimal edit region between old and new source.
 
@@ -116,6 +132,12 @@ class ReactivePipeline:
         # Single-writer (watcher), replace-on-write semantics.
         self._content_cache: dict[Path, _CachedContent] = {}
 
+        # Markdown renderer for re-rendering content on changes.
+        # Must match the config used in app._parse_pages() at startup.
+        from patitas import Markdown
+
+        self._md_renderer = Markdown(plugins=["table"])
+
         # Create profiler if collector is available
         if collector is not None:
             from purr.observability.profiler import PipelineProfiler
@@ -181,6 +203,11 @@ class ReactivePipeline:
         # Update the cache with new state
         self._content_cache[path] = _CachedContent(doc=new_doc, source=new_source)
 
+        # Re-render HTML so full page loads serve fresh content.
+        # The route handler reads page.html_content on every request;
+        # without this, only SSE fragment updates would reflect changes.
+        self._update_page_html(path, new_source)
+
         if old_doc is None:
             # No previous AST — can't diff, skip (first load or new file)
             return
@@ -205,6 +232,7 @@ class ReactivePipeline:
 
         # Find which page(s) this content file belongs to
         total_blocks_updated = 0
+        affected_permalinks: list[str] = []
         for page in self._site.pages:
             if not hasattr(page, "source_path") or page.source_path is None:
                 continue
@@ -217,6 +245,8 @@ class ReactivePipeline:
             permalink = self._get_permalink(page)
             if not permalink:
                 continue
+
+            affected_permalinks.append(permalink)
 
             # Attempt selective block recompilation
             if profiler is not None:
@@ -255,6 +285,13 @@ class ReactivePipeline:
                         trigger_path=str(path),
                         duration_ms=duration_ms,
                     )
+
+        # Fallback: if the targeted fragment path produced zero block updates
+        # (e.g. block_metadata unavailable, mapper couldn't resolve deps),
+        # push a full page refresh so the browser still gets notified.
+        if total_blocks_updated == 0 and affected_permalinks:
+            for permalink in affected_permalinks:
+                await self._broadcaster.push_full_refresh(permalink)
 
         # Emit the profiling event (replaces the old _log_change call)
         if profiler is not None and total_blocks_updated > 0:
@@ -489,6 +526,24 @@ class ReactivePipeline:
 
         except Exception:
             return 0  # Best-effort; full recompile on next access
+
+    def _update_page_html(self, path: Path, source: str) -> None:
+        """Re-render markdown to HTML and update the page object.
+
+        Ensures full page loads serve fresh content, not just SSE fragment
+        updates.  Strips frontmatter, re-renders the body via Patitas, and
+        writes back to ``page.html_content`` and ``page._raw_content``.
+
+        """
+        body = _strip_frontmatter(source)
+        for page in self._site.pages:
+            if not hasattr(page, "source_path") or page.source_path is None:
+                continue
+            if Path(page.source_path).resolve() != path.resolve():
+                continue
+            page.html_content = self._md_renderer(body)
+            page._raw_content = body
+            break
 
     def _build_page_context(self, page: Any) -> dict[str, Any]:
         """Build the Bengal template context for a page."""

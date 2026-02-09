@@ -6,9 +6,14 @@ need re-rendering.
 
 Example flow:
     1. Differ reports: Heading node at line 14 was modified
-    2. Mapper knows: Heading changes affect page.toc (from content model)
-    3. Kida reports: block "sidebar" depends on page.toc (from block_metadata())
-    4. Result: re-render the "sidebar" block and push via SSE
+    2. Mapper knows: Heading changes affect ``content`` and ``toc``
+    3. Kida reports: block "content" depends on ``content``, ``toc`` (from block_metadata())
+    4. Result: re-render the "content" block and push via SSE
+
+Context path names must match the actual template variable names that
+Kida's ``DependencyWalker`` detects.  For example, page.html uses
+``{{ content | safe }}`` and ``{{ toc | safe }}``, so the mapper must
+use ``"content"`` and ``"toc"`` — not ``"page.body"`` or ``"page.toc"``.
 """
 
 from __future__ import annotations
@@ -41,31 +46,34 @@ class BlockUpdate:
 # ---------------------------------------------------------------------------
 # Content-to-context mapping
 # ---------------------------------------------------------------------------
-# Maps Patitas AST node type names to the Bengal template context paths they
-# affect.  This defines how content structure maps to template variables.
+# Maps Patitas AST node type names to the template context variables they
+# affect.  Names must match what Kida's DependencyWalker detects in templates:
+#
+#   page.html uses:  {{ content | safe }}, {{ toc | safe }}, {{ page.title }},
+#                    {{ page.date }}, {{ page.tags }}
 #
 # The mapping is conservative — it may over-identify affected context paths
 # (causing unnecessary re-renders) but never under-identify (causing stale
 # content).  When a node type isn't in this map, the FALLBACK covers it.
 
 CONTENT_CONTEXT_MAP: dict[str, frozenset[str]] = {
-    "Heading": frozenset({"page.toc", "page.headings", "page.body"}),
-    "Paragraph": frozenset({"page.body"}),
-    "FencedCode": frozenset({"page.body"}),
-    "IndentedCode": frozenset({"page.body"}),
-    "List": frozenset({"page.body"}),
-    "ListItem": frozenset({"page.body"}),
-    "BlockQuote": frozenset({"page.body"}),
-    "Table": frozenset({"page.body"}),
-    "ThematicBreak": frozenset({"page.body"}),
-    "Directive": frozenset({"page.body"}),
-    "MathBlock": frozenset({"page.body"}),
-    "FootnoteDef": frozenset({"page.body", "page.footnotes"}),
-    "HtmlBlock": frozenset({"page.body"}),
+    "Heading": frozenset({"content", "toc"}),
+    "Paragraph": frozenset({"content"}),
+    "FencedCode": frozenset({"content"}),
+    "IndentedCode": frozenset({"content"}),
+    "List": frozenset({"content"}),
+    "ListItem": frozenset({"content"}),
+    "BlockQuote": frozenset({"content"}),
+    "Table": frozenset({"content"}),
+    "ThematicBreak": frozenset({"content"}),
+    "Directive": frozenset({"content"}),
+    "MathBlock": frozenset({"content"}),
+    "FootnoteDef": frozenset({"content"}),
+    "HtmlBlock": frozenset({"content"}),
 }
 
 # Catch-all for unknown node types — conservative
-FALLBACK_CONTEXT_PATHS = frozenset({"page.body", "page.toc", "page.meta"})
+FALLBACK_CONTEXT_PATHS = frozenset({"content", "toc", "page"})
 
 
 class ReactiveMapper:

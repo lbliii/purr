@@ -154,10 +154,15 @@ class Broadcaster:
         Used as the generator for Chirp's ``EventStream``. Yields
         Fragment and SSEEvent objects as they arrive on the queue.
 
+        Catches ``CancelledError`` (client disconnect / task cancellation)
+        and ``GeneratorExit`` (generator cleanup) to prevent
+        ``StopAsyncIteration`` noise from leaking into the event loop's
+        exception handler.
+
         """
         try:
             while True:
                 event = await conn.queue.get()
                 yield event
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             return

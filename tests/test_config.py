@@ -62,3 +62,13 @@ class TestPurrConfig:
     def test_fingerprint_enabled(self) -> None:
         config = PurrConfig(fingerprint=True)
         assert config.fingerprint is True
+
+    def test_relative_root_resolved_to_absolute(self) -> None:
+        """Relative root is resolved to absolute in __post_init__."""
+        config = PurrConfig(root=Path("site"))
+        assert config.root.is_absolute()
+
+    def test_absolute_root_unchanged(self, tmp_path: Path) -> None:
+        """Absolute root is not modified by __post_init__."""
+        config = PurrConfig(root=tmp_path)
+        assert config.root == tmp_path

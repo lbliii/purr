@@ -54,6 +54,18 @@ def _mock_kida_env(
     return env
 
 
+def _mock_app(
+    kida_env: MagicMock | None = None,
+) -> MagicMock:
+    """Create a mock Chirp App with a ``_kida_env`` attribute.
+
+    DependencyGraph resolves the Kida environment lazily from ``app._kida_env``.
+    """
+    app = MagicMock()
+    app._kida_env = kida_env
+    return app
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -65,7 +77,7 @@ class TestAffectedPages:
     def test_delegates_to_tracer(self) -> None:
         expected = {Path("content/page.md"), Path("content/other.md")}
         tracer = _mock_tracer(outputs=expected)
-        graph = DependencyGraph(tracer, _mock_kida_env())
+        graph = DependencyGraph(tracer, _mock_app(_mock_kida_env()))
 
         result = graph.affected_pages({Path("content/page.md")})
         assert result == expected
@@ -73,7 +85,7 @@ class TestAffectedPages:
 
     def test_empty_change_set(self) -> None:
         tracer = _mock_tracer(outputs=set())
-        graph = DependencyGraph(tracer, _mock_kida_env())
+        graph = DependencyGraph(tracer, _mock_app(_mock_kida_env()))
 
         assert graph.affected_pages(set()) == set()
 
@@ -85,30 +97,30 @@ class TestBlockDepsForTemplate:
         env = _mock_kida_env(
             templates={
                 "page.html": {
-                    "content": frozenset({"page.body"}),
-                    "sidebar": frozenset({"page.toc", "page.headings"}),
+                    "content": frozenset({"content"}),
+                    "sidebar": frozenset({"toc"}),
                     "header": frozenset({"site.title", "page.title"}),
                 }
             }
         )
-        graph = DependencyGraph(_mock_tracer(), env)
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env))
 
         deps = graph.block_deps_for_template("page.html")
-        assert deps["content"] == frozenset({"page.body"})
-        assert deps["sidebar"] == frozenset({"page.toc", "page.headings"})
+        assert deps["content"] == frozenset({"content"})
+        assert deps["sidebar"] == frozenset({"toc"})
         assert deps["header"] == frozenset({"site.title", "page.title"})
 
     def test_missing_template_returns_empty(self) -> None:
         env = _mock_kida_env(templates={})
-        graph = DependencyGraph(_mock_tracer(), env)
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env))
 
         assert graph.block_deps_for_template("nonexistent.html") == {}
 
     def test_results_are_cached(self) -> None:
         env = _mock_kida_env(
-            templates={"page.html": {"body": frozenset({"page.body"})}}
+            templates={"page.html": {"body": frozenset({"content"})}}
         )
-        graph = DependencyGraph(_mock_tracer(), env)
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env))
 
         # First call
         deps1 = graph.block_deps_for_template("page.html")
@@ -118,9 +130,9 @@ class TestBlockDepsForTemplate:
 
     def test_invalidate_template_cache(self) -> None:
         env = _mock_kida_env(
-            templates={"page.html": {"body": frozenset({"page.body"})}}
+            templates={"page.html": {"body": frozenset({"content"})}}
         )
-        graph = DependencyGraph(_mock_tracer(), env)
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env))
 
         graph.block_deps_for_template("page.html")
         graph.invalidate_template_cache("page.html")
@@ -129,30 +141,56 @@ class TestBlockDepsForTemplate:
     def test_invalidate_all_caches(self) -> None:
         env = _mock_kida_env(
             templates={
-                "page.html": {"body": frozenset({"page.body"})},
+                "page.html": {"body": frozenset({"content"})},
                 "index.html": {"nav": frozenset({"site.pages"})},
             }
         )
-        graph = DependencyGraph(_mock_tracer(), env)
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env))
 
         graph.block_deps_for_template("page.html")
         graph.block_deps_for_template("index.html")
         graph.invalidate_all_caches()
         assert graph._block_meta_cache == {}
 
+    def test_kida_env_none_returns_empty_without_caching(self) -> None:
+        """When kida_env is None (pre-freeze), return {} but don't cache."""
+        graph = DependencyGraph(_mock_tracer(), _mock_app(None))
+
+        deps = graph.block_deps_for_template("page.html")
+        assert deps == {}
+        # Should NOT be cached so it can be retried after freeze
+        assert "page.html" not in graph._block_meta_cache
+
+    def test_kida_env_resolved_lazily(self) -> None:
+        """kida_env is read from app._kida_env on each access."""
+        app = _mock_app(None)
+        graph = DependencyGraph(_mock_tracer(), app)
+
+        assert graph.kida_env is None
+
+        # Simulate freeze making env available
+        env = _mock_kida_env(
+            templates={"page.html": {"content": frozenset({"content"})}}
+        )
+        app._kida_env = env
+
+        assert graph.kida_env is env
+        deps = graph.block_deps_for_template("page.html")
+        assert deps["content"] == frozenset({"content"})
+
 
 class TestIsCascadeChange:
     """Tests for DependencyGraph.is_cascade_change()."""
 
     def test_config_change_is_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/purr.yaml"), kind="modified", category="config"
         )
         assert graph.is_cascade_change(event) is True
 
     def test_base_template_is_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/templates/base.html"),
             kind="modified",
@@ -161,7 +199,7 @@ class TestIsCascadeChange:
         assert graph.is_cascade_change(event) is True
 
     def test_layout_template_is_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/templates/layout.html"),
             kind="modified",
@@ -170,7 +208,7 @@ class TestIsCascadeChange:
         assert graph.is_cascade_change(event) is True
 
     def test_regular_template_not_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/templates/page.html"),
             kind="modified",
@@ -179,7 +217,7 @@ class TestIsCascadeChange:
         assert graph.is_cascade_change(event) is False
 
     def test_content_change_not_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/content/page.md"),
             kind="modified",
@@ -188,7 +226,7 @@ class TestIsCascadeChange:
         assert graph.is_cascade_change(event) is False
 
     def test_asset_change_not_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_kida_env())
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/static/style.css"),
             kind="modified",

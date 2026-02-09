@@ -12,7 +12,8 @@ class PurrConfig:
     """Configuration for a Purr application.
 
     Attributes:
-        root: Path to the site root directory (contains content/, templates/, etc.)
+        root: Path to the site root directory (contains content/, templates/, etc.).
+              Always resolved to an absolute path on construction.
         host: Bind address for dev/serve modes.
         port: Bind port for dev/serve modes.
         output: Output directory for static export.
@@ -37,6 +38,12 @@ class PurrConfig:
     static_dir: str = "static"
     base_url: str = ""
     fingerprint: bool = False
+
+    def __post_init__(self) -> None:
+        # Resolve root to absolute so that watchfiles (which returns
+        # absolute paths) can be compared via Path.relative_to().
+        if not self.root.is_absolute():
+            object.__setattr__(self, "root", self.root.resolve())
 
     @property
     def content_path(self) -> Path:

@@ -6,14 +6,13 @@ tags:
   - tutorial
 ---
 
-# Getting Started
-
 ## Installation
 
 ```bash
 uv add bengal-purr
 ```
-adafdadfafda
+
+hihihi
 
 ## Create a Site
 

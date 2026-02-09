@@ -11,7 +11,7 @@ Auto-selected for pages without a specific template override.
 {% block title %}{{ page.title ?? 'Page' }} — {{ site.title ?? 'Purr' }}{% end %}
 
 {% block content %}
-<div class="page-layout{{ ' page-with-toc' if toc else '' }}">
+<div id="purr-content" class="page-layout{{ ' page-with-toc' if toc else '' }}">
   <article class="page prose">
     <header class="page-header">
       <h1>{{ page.title ?? 'Untitled' }}</h1>

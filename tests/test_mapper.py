@@ -39,9 +39,11 @@ def _change(kind: str, node_type: str, *, path: tuple[int, ...] = (0,)) -> ASTCh
 
 
 # Standard block metadata for testing — mimics a typical page template.
+# Context paths must match what Kida's DependencyWalker detects in templates
+# (e.g., ``content``, ``toc``, ``page``) — NOT ``page.body``, ``page.toc``.
 BLOCK_META: dict[str, frozenset[str]] = {
-    "content": frozenset({"page.body"}),
-    "sidebar": frozenset({"page.toc", "page.headings"}),
+    "content": frozenset({"content"}),
+    "sidebar": frozenset({"toc"}),
     "header": frozenset({"site.title", "page.title"}),
     "footer": frozenset({"site.copyright"}),
 }
@@ -71,25 +73,25 @@ class TestReactiveMapper:
         assert len(result) == 1
         assert result[0].block_name == "content"
         assert result[0].permalink == PERMALINK
-        assert "page.body" in result[0].context_paths
+        assert "content" in result[0].context_paths
 
     def test_heading_change_hits_content_and_sidebar(self) -> None:
-        """Heading changes affect page.body, page.toc, and page.headings."""
+        """Heading changes affect ``content`` and ``toc`` context vars."""
         mapper = ReactiveMapper()
         changes = (_change("modified", "Heading"),)
         result = mapper.map_changes(changes, TEMPLATE, BLOCK_META, PERMALINK)
 
         block_names = {u.block_name for u in result}
-        assert "content" in block_names  # page.body
-        assert "sidebar" in block_names  # page.toc, page.headings
+        assert "content" in block_names  # depends on "content"
+        assert "sidebar" in block_names  # depends on "toc"
 
-    def test_footnote_change_affects_body(self) -> None:
+    def test_footnote_change_affects_content(self) -> None:
         mapper = ReactiveMapper()
         changes = (_change("added", "FootnoteDef"),)
         result = mapper.map_changes(changes, TEMPLATE, BLOCK_META, PERMALINK)
 
         block_names = {u.block_name for u in result}
-        assert "content" in block_names  # page.body
+        assert "content" in block_names
 
     def test_unknown_node_type_uses_fallback(self) -> None:
         """Unknown node types trigger the conservative fallback."""
@@ -101,7 +103,7 @@ class TestReactiveMapper:
         for update in result:
             affected_paths.update(update.context_paths)
 
-        # Fallback includes page.body, page.toc, page.meta
+        # Fallback includes content, toc, page
         assert affected_paths & FALLBACK_CONTEXT_PATHS
 
     def test_no_matching_blocks_returns_empty(self) -> None:
@@ -184,16 +186,17 @@ class TestBlockUpdateDataclass:
 class TestContentContextMap:
     """Verify the CONTENT_CONTEXT_MAP coverage."""
 
-    def test_heading_maps_to_toc_and_body(self) -> None:
+    def test_heading_maps_to_toc_and_content(self) -> None:
         paths = CONTENT_CONTEXT_MAP["Heading"]
-        assert "page.toc" in paths
-        assert "page.body" in paths
+        assert "toc" in paths
+        assert "content" in paths
 
-    def test_all_block_types_map_to_body(self) -> None:
-        """Every known node type should at least affect page.body."""
+    def test_all_block_types_map_to_content(self) -> None:
+        """Every known node type should at least affect the ``content`` variable."""
         for node_type, paths in CONTENT_CONTEXT_MAP.items():
-            assert "page.body" in paths, f"{node_type} missing page.body"
+            assert "content" in paths, f"{node_type} missing 'content'"
 
     def test_fallback_is_conservative(self) -> None:
-        assert "page.body" in FALLBACK_CONTEXT_PATHS
-        assert "page.toc" in FALLBACK_CONTEXT_PATHS
+        assert "content" in FALLBACK_CONTEXT_PATHS
+        assert "toc" in FALLBACK_CONTEXT_PATHS
+        assert "page" in FALLBACK_CONTEXT_PATHS

@@ -243,14 +243,13 @@ def _setup_reactive_pipeline(
     except Exception:
         tracer = None  # type: ignore[assignment]
 
-    # Get the Kida environment from the Chirp app (if available)
-    kida_env = getattr(app, "_kida_env", None) or getattr(app, "kida_env", None)
-
     # Create the unified observability collector
     event_log = EventLog()
     collector = StackCollector(event_log)
 
-    graph = DependencyGraph(tracer=tracer, kida_env=kida_env)
+    # DependencyGraph resolves kida_env lazily from the app reference
+    # because the Kida environment isn't created until Chirp's _freeze().
+    graph = DependencyGraph(tracer=tracer, app=app)
     mapper = ReactiveMapper()
     pipeline = ReactivePipeline(
         graph=graph,
@@ -282,13 +281,12 @@ def _start_watcher(config: PurrConfig, pipeline: object, app: App) -> object:
     """Wire the ContentWatcher to the reactive pipeline via Chirp lifecycle hooks.
 
     Registers ``on_startup`` / ``on_shutdown`` hooks on *app* so that the
-    watcher thread and its async consumer task live inside the event loop
-    managed by Pounce.
+    async watcher task lives inside the event loop managed by Pounce.
 
     Flow:
-        on_startup  → start watcher thread + spawn ``_consume_events`` task
-        file change → watcher queue → consumer task → pipeline.handle_change()
-        on_shutdown → stop watcher thread + cancel consumer task
+        on_startup  → spawn ``_consume_events`` task (runs ``awatch`` internally)
+        file change → async iteration → pipeline.handle_change()
+        on_shutdown → cancel consumer task (cleanly tears down ``awatch``)
 
     Returns the ContentWatcher instance (for external reference, if needed).
 
@@ -304,7 +302,6 @@ def _start_watcher(config: PurrConfig, pipeline: object, app: App) -> object:
     @app.on_startup
     async def _start_event_consumer() -> None:
         nonlocal _task
-        watcher.start()
 
         async def _consume_events() -> None:
             assert isinstance(pipeline, ReactivePipeline)
@@ -318,7 +315,6 @@ def _start_watcher(config: PurrConfig, pipeline: object, app: App) -> object:
 
     @app.on_shutdown
     async def _stop_event_consumer() -> None:
-        watcher.stop()
         if _task is not None and not _task.done():
             _task.cancel()
 

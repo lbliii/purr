@@ -24,6 +24,8 @@ When you save a Markdown file during `purr dev`:
 
 The result: sub-100ms updates from keystroke to browser, with zero full page reloads.
 
+If the fragment update path cannot resolve affected blocks (e.g., template introspection is unavailable), the pipeline falls back to pushing a `purr:refresh` event that triggers a full page reload — ensuring updates always reach the browser.
+
 ## Observability
 
 Every stage is instrumented. Check `/__purr/stats` during dev for:
