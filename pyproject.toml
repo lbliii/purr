@@ -31,7 +31,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "bengal>=0.1.8",
+    "bengal>=0.1.10",
     "bengal-chirp>=0.1.0",
     "bengal-pounce>=0.1.0",
     "watchfiles>=1.0.0",

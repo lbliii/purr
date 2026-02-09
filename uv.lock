@@ -110,7 +110,7 @@ wheels = [
 
 [[package]]
 name = "bengal"
-version = "0.1.8"
+version = "0.1.9"
 source = { editable = "../bengal" }
 dependencies = [
     { name = "click" },
@@ -202,6 +202,7 @@ version = "0.1.0.dev0"
 source = { editable = "../chirp" }
 dependencies = [
     { name = "anyio" },
+    { name = "bengal-pounce" },
     { name = "kida-templates" },
 ]
 
@@ -212,6 +213,7 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'full'", specifier = ">=0.20.0" },
     { name = "anyio", specifier = ">=4.0" },
     { name = "asyncpg", marker = "extra == 'data-pg'", specifier = ">=0.30.0" },
+    { name = "bengal-pounce", editable = "../pounce" },
     { name = "httpx", marker = "extra == 'ai'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'all'", specifier = ">=0.27.0" },
     { name = "httpx", marker = "extra == 'full'", specifier = ">=0.27.0" },
@@ -244,7 +246,7 @@ dev = [
 
 [[package]]
 name = "bengal-pounce"
-version = "0.4.0.dev0"
+version = "0.1.0.dev0"
 source = { editable = "../pounce" }
 dependencies = [
     { name = "h11" },
@@ -285,6 +287,10 @@ dev = [
     { name = "ruff", specifier = ">=0.14.0" },
     { name = "ty", specifier = ">=0.0.11" },
     { name = "wsproto", specifier = ">=1.2" },
+]
+docs = [
+    { name = "bengal", specifier = ">=0.1.9" },
+    { name = "lunr", specifier = ">=0.7.0" },
 ]
 
 [[package]]
