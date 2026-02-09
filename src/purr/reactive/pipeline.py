@@ -136,7 +136,8 @@ class ReactivePipeline:
             await self._handle_config_change(event)
         elif event.category == "route":
             self._handle_route_change(event)
-        # asset changes are not propagated (copied via StaticFiles middleware)
+        elif event.category == "asset":
+            await self._handle_asset_change(event)
 
     async def _handle_content_change(self, event: ChangeEvent) -> None:
         """Content file changed: incremental parse -> diff -> map -> recompile -> broadcast."""
@@ -328,6 +329,22 @@ class ReactivePipeline:
             f"  Route changed: {event.path.name} — restart purr dev to apply",
             file=sys.stderr,
         )
+
+    async def _handle_asset_change(self, event: ChangeEvent) -> None:
+        """Static asset changed: push full refresh to all connected clients.
+
+        Static files are served directly from disk via StaticFiles middleware,
+        so the new content is already available — the browser just needs to
+        know to re-request it.
+
+        """
+        print(
+            f"  Asset changed: {event.path.name}",
+            file=sys.stderr,
+        )
+
+        for permalink in self._broadcaster.get_subscribed_pages():
+            await self._broadcaster.push_full_refresh(permalink)
 
     def _parse_content_incremental(
         self,

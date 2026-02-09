@@ -66,6 +66,9 @@ Thumbs.db
 # Project specific
 *.log
 
+# Guard against str(list[PosixPath]) directory pollution from bytecode cache
+\[PosixPath*/
+
 # uv.lock tracked for reproducibility (matches bengal ecosystem convention)
 
 # DORI (local/ephemeral)
