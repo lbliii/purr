@@ -20,7 +20,7 @@ Lists child pages as linked cards. Used for _index.md section pages.
     {% end %}
   </header>
 
-  {% let children = section.pages ?? [] %}
+  {% let children = child_pages ?? section.pages ?? [] %}
   {% if children | length > 0 %}
   <div class="index-grid">
     {% for child in children %}

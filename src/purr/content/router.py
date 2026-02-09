@@ -196,8 +196,14 @@ class ContentRouter:
         On each request it builds the full Bengal template context and returns a
         Chirp ``Template`` object for Kida to render.
 
+        Enriches the context with:
+        - ``nav_sections``: top-level sections for navigation
+        - ``child_pages``: pages whose URL is a direct child of this page
+          (used by index.html to list section contents)
+
         """
         site = self._site
+        permalink = self._get_permalink(page) or "/"
 
         async def page_handler(request: Request) -> Any:
             from bengal.rendering.context import build_page_context
@@ -205,6 +211,17 @@ class ContentRouter:
 
             content = page.html_content or ""
             context = build_page_context(page, site, content=content, lazy=True)
+
+            # Add navigation sections for base.html nav bar
+            context["nav_sections"] = [
+                {"title": s.title or s.name, "href": getattr(s, "href", f"/{s.name}/")}
+                for s in site.sections
+                if getattr(s, "title", None) or getattr(s, "name", None)
+            ]
+
+            # Add child pages for index.html listings
+            context["child_pages"] = _child_pages(permalink, site.pages)
+
             return Template(template_name, **context)
 
         # Give the handler a useful name for debugging
@@ -212,3 +229,27 @@ class ContentRouter:
         page_handler.__qualname__ = f"ContentRouter.page_{self._page_count}"
 
         return page_handler
+
+
+def _child_pages(parent_href: str, all_pages: list[Page]) -> list[Page]:
+    """Return pages whose href is a direct child of ``parent_href``.
+
+    For ``/`` returns top-level section index pages (e.g. ``/docs/``).
+    For ``/docs/`` returns pages like ``/docs/getting-started/`` but
+    not ``/docs/nested/deep/``.
+    """
+    children: list[Page] = []
+    for p in all_pages:
+        href = getattr(p, "href", None) or ""
+        if not href or href == parent_href:
+            continue
+        # Must start with parent path
+        if not href.startswith(parent_href):
+            continue
+        # Direct child: after stripping the parent prefix, the remainder
+        # should have at most one path segment (e.g. "getting-started/")
+        remainder = href[len(parent_href):]
+        segments = [s for s in remainder.split("/") if s]
+        if len(segments) <= 1:
+            children.append(p)
+    return children

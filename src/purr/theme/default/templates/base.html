@@ -43,6 +43,9 @@ base.html in their templates/ directory (takes priority via fallback chain).
     <nav class="site-nav">
       <a href="/" class="site-logo">{{ site.title ?? 'Purr' }}</a>
       <div class="nav-links">
+        {% for sec in (nav_sections ?? []) %}
+        <a href="{{ sec.href }}">{{ sec.title }}</a>
+        {% end %}
         {% for item in (dynamic_routes ?? []) %}
         <a href="{{ item.path }}">{{ item.title }}</a>
         {% end %}

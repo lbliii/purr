@@ -26,17 +26,18 @@ def _parse_pages(site: Site) -> None:
 
     Bengal separates discovery from parsing.  Rather than pulling in the
     full ``RenderingPipeline`` / ``BuildOrchestrator`` machinery, we use
-    Patitas directly for a lightweight parse pass that populates each
-    page's ``html_content``.
+    Patitas' ``Markdown`` class directly with common extensions enabled
+    (tables, strikethrough, task lists, footnotes).
     """
-    from patitas import parse, render
+    from patitas import Markdown
+
+    md = Markdown(plugins=["table"])
 
     for page in site.pages:
         raw = getattr(page, "_raw_content", "") or ""
         if not raw:
             continue
-        doc = parse(raw)
-        page.html_content = render(doc)
+        page.html_content = md(raw)
 
 
 def _load_site(root: Path) -> Site:
