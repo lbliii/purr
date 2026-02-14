@@ -22,25 +22,15 @@ See [ROADMAP.md](ROADMAP.md) for the full plan.
 
 ---
 
-## Why Purr?
+## What is Purr?
 
-Every existing content tool forces a choice: static site or web application.
+Purr is the integration layer for the Bengal ecosystem. It connects Bengal's dependency graph to Chirp's SSE pipeline, maps Patitas AST changes to Kida template blocks, and unifies static content with dynamic routes. Edit a Markdown file and the browser updates the affected paragraph — not the page, not the site, just the content that changed.
 
-Static site generators build HTML files from content — fast and deployable, but when you
-need search, authentication, or a dashboard, you leave the static world and rewrite in a
-framework. Web frameworks handle dynamic content natively, but they're overkill for
-documentation and their content story is an afterthought.
+**What's good about it:**
 
-The Bengal ecosystem already solves each piece: Patitas parses Markdown into typed ASTs,
-Kida compiles templates to Python AST, Rosettes highlights code in O(n), Bengal builds
-static sites with dependency tracking, Chirp serves HTML with SSE streaming, and Pounce
-runs ASGI with real thread parallelism.
-
-What was missing is the integration — the layer that connects Bengal's dependency graph to
-Chirp's SSE pipeline, maps Patitas AST changes to Kida template blocks, and makes "static
-site that becomes a dynamic app" a single command instead of a rewrite.
-
-Purr is that layer.
+- **Content-reactive** — Changes propagate through incremental re-parse, AST diff, selective block recompile, and into the browser via SSE. O(change), not O(document).
+- **Static-to-dynamic continuum** — Start with Markdown and templates. Add Chirp routes when you need search, APIs, or dashboards. Same templates, same server, same URL space.
+- **Three modes** — `purr dev` for reactive local development. `purr build` for static export. `purr serve` for live production with dynamic routes.
 
 ---
 
