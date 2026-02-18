@@ -36,21 +36,37 @@ def _mock_block_metadata(deps: dict[str, frozenset[str]]) -> MagicMock:
     return metadata
 
 
+def _mock_template_metadata(extends: str | None = None) -> MagicMock:
+    """Create a mock TemplateMetadata with .extends."""
+    meta = MagicMock()
+    meta.extends = extends
+    return meta
+
+
 def _mock_kida_env(
     templates: dict[str, dict[str, frozenset[str]]] | None = None,
+    extends: dict[str, str] | None = None,
 ) -> MagicMock:
-    """Create a mock Kida Environment with template.block_metadata()."""
+    """Create a mock Kida Environment with template.block_metadata() and template_metadata()."""
     env = MagicMock()
     templates = templates or {}
+    extends = extends or {}
 
     def get_template(name: str) -> MagicMock:
-        if name not in templates:
-            raise KeyError(name)
         tmpl = MagicMock()
-        tmpl.block_metadata.return_value = _mock_block_metadata(templates[name])
+        if name in templates:
+            tmpl.block_metadata.return_value = _mock_block_metadata(templates[name])
+        else:
+            tmpl.block_metadata.return_value = {}
+        meta = _mock_template_metadata(extends.get(name))
+        tmpl.template_metadata.return_value = meta
         return tmpl
 
     env.get_template = get_template
+    loader = MagicMock()
+    all_names = set(templates.keys()) | set(extends.keys())
+    loader.list_templates.return_value = list(all_names)
+    env.loader = loader
     return env
 
 
@@ -88,6 +104,80 @@ class TestAffectedPages:
         graph = DependencyGraph(tracer, _mock_app(_mock_kida_env()))
 
         assert graph.affected_pages(set()) == set()
+
+
+class TestPagesUsingTemplate:
+    """Tests for DependencyGraph.pages_using_template()."""
+
+    def test_site_none_returns_empty(self) -> None:
+        """When site is None, returns empty set (graceful degradation)."""
+        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
+        assert graph.pages_using_template("page.html") == set()
+
+    def test_returns_pages_matching_template(self) -> None:
+        """Returns source paths of pages that use the given template."""
+        site = MagicMock()
+        page1 = MagicMock()
+        page1.source_path = Path("/site/content/docs/intro.md")
+        page1.metadata = {}
+        page2 = MagicMock()
+        page2.source_path = Path("/site/content/blog/post.md")
+        page2.metadata = {}
+        page3 = MagicMock()
+        page3.source_path = Path("/site/content/about/_index.md")
+        page3.metadata = {}
+        site.pages = [page1, page2, page3]
+
+        graph = DependencyGraph(
+            _mock_tracer(), _mock_app(_mock_kida_env()), site=site
+        )
+        # page1, page2 use default page.html; page3 uses index.html
+        result = graph.pages_using_template("page.html")
+        assert result == {
+            Path("/site/content/docs/intro.md"),
+            Path("/site/content/blog/post.md"),
+        }
+
+    def test_returns_index_pages_for_index_template(self) -> None:
+        """Index template matches _index.md pages."""
+        site = MagicMock()
+        index_page = MagicMock()
+        index_page.source_path = Path("/site/content/about/_index.md")
+        index_page.metadata = {}
+        site.pages = [index_page]
+
+        graph = DependencyGraph(
+            _mock_tracer(), _mock_app(_mock_kida_env()), site=site
+        )
+        result = graph.pages_using_template("index.html")
+        assert result == {Path("/site/content/about/_index.md")}
+
+    def test_explicit_template_in_metadata(self) -> None:
+        """Page with explicit template in frontmatter uses that template."""
+        site = MagicMock()
+        page = MagicMock()
+        page.source_path = Path("/site/content/special.md")
+        page.metadata = {"template": "custom.html"}
+        site.pages = [page]
+
+        graph = DependencyGraph(
+            _mock_tracer(), _mock_app(_mock_kida_env()), site=site
+        )
+        result = graph.pages_using_template("custom.html")
+        assert result == {Path("/site/content/special.md")}
+
+    def test_skips_pages_without_source_path(self) -> None:
+        """Pages without source_path are skipped."""
+        site = MagicMock()
+        page = MagicMock()
+        page.source_path = None
+        page.metadata = {}
+        site.pages = [page]
+
+        graph = DependencyGraph(
+            _mock_tracer(), _mock_app(_mock_kida_env()), site=site
+        )
+        assert graph.pages_using_template("page.html") == set()
 
 
 class TestBlockDepsForTemplate:
@@ -179,6 +269,48 @@ class TestBlockDepsForTemplate:
         assert deps["content"] == frozenset({"content"})
 
 
+class TestTemplatesExtending:
+    """Tests for DependencyGraph.templates_extending()."""
+
+    def test_returns_children_when_template_extended(self) -> None:
+        """When page.html extends base.html, templates_extending('base.html') returns {'page.html'}."""
+        env = _mock_kida_env(
+            templates={"page.html": {"content": frozenset()}, "base.html": {}},
+            extends={"page.html": "base.html"},
+        )
+        site = MagicMock()
+        site.pages = []
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env), site=site)
+
+        result = graph.templates_extending("base.html")
+        assert result == {"page.html"}
+
+    def test_returns_empty_when_no_children(self) -> None:
+        """When no template extends the given one, returns empty set."""
+        env = _mock_kida_env(
+            templates={"page.html": {"content": frozenset()}},
+            extends={},
+        )
+        site = MagicMock()
+        site.pages = []
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env), site=site)
+
+        assert graph.templates_extending("page.html") == set()
+        assert graph.templates_extending("base.html") == set()
+
+    def test_invalidate_template_cache_clears_extends_map(self) -> None:
+        """invalidate_template_cache clears the extends map for next build."""
+        env = _mock_kida_env(extends={"page.html": "base.html"})
+        site = MagicMock()
+        site.pages = []
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env), site=site)
+
+        graph.templates_extending("base.html")
+        assert graph._extends_map is not None
+        graph.invalidate_template_cache("base.html")
+        assert graph._extends_map is None
+
+
 class TestIsCascadeChange:
     """Tests for DependencyGraph.is_cascade_change()."""
 
@@ -189,7 +321,21 @@ class TestIsCascadeChange:
         )
         assert graph.is_cascade_change(event) is True
 
+    def test_cascade_when_template_extended_by_another(self) -> None:
+        """Cascade when changed template is a parent (has children via extends)."""
+        env = _mock_kida_env(extends={"page.html": "base.html"})
+        site = MagicMock()
+        site.pages = []
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env), site=site)
+        event = ChangeEvent(
+            path=Path("/site/templates/base.html"),
+            kind="modified",
+            category="template",
+        )
+        assert graph.is_cascade_change(event) is True
+
     def test_base_template_is_cascade(self) -> None:
+        """Heuristic fallback: name contains 'base'."""
         graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/templates/base.html"),
@@ -199,6 +345,7 @@ class TestIsCascadeChange:
         assert graph.is_cascade_change(event) is True
 
     def test_layout_template_is_cascade(self) -> None:
+        """Heuristic fallback: name contains 'layout'."""
         graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
         event = ChangeEvent(
             path=Path("/site/templates/layout.html"),
@@ -207,14 +354,31 @@ class TestIsCascadeChange:
         )
         assert graph.is_cascade_change(event) is True
 
-    def test_regular_template_not_cascade(self) -> None:
-        graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))
+    def test_no_cascade_when_template_has_no_children(self) -> None:
+        """No cascade when template is not extended and name has no base/layout."""
+        env = _mock_kida_env(
+            templates={"page.html": {"content": frozenset()}},
+            extends={},
+        )
+        site = MagicMock()
+        site.pages = []
+        graph = DependencyGraph(_mock_tracer(), _mock_app(env), site=site)
         event = ChangeEvent(
             path=Path("/site/templates/page.html"),
             kind="modified",
             category="template",
         )
         assert graph.is_cascade_change(event) is False
+
+    def test_fallback_to_heuristic_when_metadata_unavailable(self) -> None:
+        """When kida_env is None, fall back to name heuristic."""
+        graph = DependencyGraph(_mock_tracer(), _mock_app(None))
+        event = ChangeEvent(
+            path=Path("/site/templates/base.html"),
+            kind="modified",
+            category="template",
+        )
+        assert graph.is_cascade_change(event) is True
 
     def test_content_change_not_cascade(self) -> None:
         graph = DependencyGraph(_mock_tracer(), _mock_app(_mock_kida_env()))

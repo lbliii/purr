@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/card.html" import card_link %}
+<article class="chirpui-stack chirpui-stack--lg" style="line-height: var(--chirpui-line-height-relaxed);">
+  {{ content | safe }}
+</article>
+{% if child_pages %}
+<div class="chirpui-grid chirpui-grid--cols-2" style="margin-top: var(--chirpui-spacing-xl);">
+  {% for p in child_pages %}
+  {% call card_link(p.href, p.title ?? p.name) %}
+  {{ p.description ?? p.excerpt ?? "" }}
+  {% end %}
+  {% end %}
+</div>
+{% end %}
+{% end %}

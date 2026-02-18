@@ -1,0 +1,9 @@
+[site]
+title = "Purr Academy"
+baseurl = "/"
+
+[build]
+output_dir = "public"
+
+[theme]
+name = "default"

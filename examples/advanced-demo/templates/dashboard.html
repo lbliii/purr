@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack, grid %}
+{% from "chirpui/card.html" import card_link %}
+{% from "chirpui/button.html" import btn %}
+{% call stack(gap="lg") %}
+<h1 class="chirpui-font-xl" style="font-weight: 600;">Dashboard</h1>
+<p class="chirpui-text-muted">Welcome, {{ user.name }}!</p>
+<h2 class="chirpui-font-lg" style="font-weight: 600; margin-top: var(--chirpui-spacing-lg);">Premium content</h2>
+{% call grid(cols=3) %}
+{% call card_link("/premium/", "Premium Hub") %}
+Access all premium content and resources.
+{% end %}
+{% call card_link("/premium/advanced-tutorials/", "Advanced Tutorials") %}
+In-depth guides and walkthroughs.
+{% end %}
+{% call card_link("/premium/deep-dives/", "Deep Dives") %}
+Deep technical explorations.
+{% end %}
+{% end %}
+{% end %}
+{% end %}

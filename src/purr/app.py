@@ -4,6 +4,7 @@ PurrApp wraps a Bengal Site and a Chirp App into a single content-reactive appli
 The three public functions (dev, build, serve) are the primary entry points.
 """
 
+import importlib.util
 import sys
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from purr._errors import ConfigError, ContentError
 from purr.config import PurrConfig
+from purr.config_loader import load_config
 
 if TYPE_CHECKING:
     from bengal.core.site import Site
@@ -120,15 +122,31 @@ def _create_chirp_app(config: PurrConfig, *, debug: bool = False) -> App:
         if str(getattr(cfg, "template_dir", None)) != _primary_dir:
             return _orig_create_env(cfg, filters, globals_)
 
-        from kida import Environment, FileSystemLoader
+        from kida import ChoiceLoader, Environment, FileSystemLoader, PackageLoader
+
+        loaders: list[FileSystemLoader | PackageLoader] = [
+            FileSystemLoader(template_dirs),
+        ]
+        # Chirp's built-in macros
+        loaders.append(PackageLoader("chirp.templating", "macros"))
+        # chirp-ui if installed
+        try:
+            import chirp_ui  # noqa: F401
+
+            loaders.append(PackageLoader("chirp_ui", "templates"))
+        except ImportError:
+            pass
 
         env = Environment(
-            loader=FileSystemLoader(template_dirs),
+            loader=ChoiceLoader(loaders),
             autoescape=cfg.autoescape,  # type: ignore[attr-defined]
             auto_reload=cfg.debug,  # type: ignore[attr-defined]
             trim_blocks=cfg.trim_blocks,  # type: ignore[attr-defined]
             lstrip_blocks=cfg.lstrip_blocks,  # type: ignore[attr-defined]
         )
+        from chirp.templating.filters import BUILTIN_FILTERS
+
+        env.update_filters(BUILTIN_FILTERS)
         if filters:
             env.update_filters(filters)
         for name, value in globals_.items():
@@ -137,11 +155,94 @@ def _create_chirp_app(config: PurrConfig, *, debug: bool = False) -> App:
 
     _chirp_app.create_environment = _create_env_guarded  # type: ignore[assignment]
 
-    return App(config=app_config)
+    app = App(config=app_config)
+
+    # chirp-ui integration when installed
+    try:
+        import chirp_ui as _chirp_ui
+        from chirp.ext.chirp_ui import use_chirp_ui
+
+        use_chirp_ui(app)
+        _chirp_ui.register_filters(app)
+    except ImportError:
+        pass
+
+    return app
 
 
-def _wire_content_routes(site: Site, app: App) -> tuple[ContentRouter, int]:
+def _resolve_load_user(config: PurrConfig) -> object | None:
+    """Resolve load_user callable from config.auth_load_user.
+
+    Format: ``module:attr`` (e.g. ``auth:load_user`` for routes/auth.py).
+    Returns the callable or None if not configured.
+    """
+    spec = config.auth_load_user
+    if not spec or ":" not in spec:
+        return None
+    module_part, _, attr = spec.partition(":")
+    if not module_part or not attr:
+        return None
+    py_file = config.routes_path / f"{module_part}.py"
+    if not py_file.is_file():
+        msg = f"auth_load_user {spec!r}: {py_file} not found"
+        raise ConfigError(msg)
+    module_name = f"purr_auth_{module_part}"
+    spec_obj = importlib.util.spec_from_file_location(module_name, py_file)
+    if spec_obj is None or spec_obj.loader is None:
+        msg = f"auth_load_user {spec!r}: failed to load {py_file}"
+        raise ConfigError(msg)
+    module = importlib.util.module_from_spec(spec_obj)
+    sys.modules[module_name] = module
+    spec_obj.loader.exec_module(module)  # type: ignore[union-attr]
+    callable_obj = getattr(module, attr, None)
+    if not callable(callable_obj):
+        msg = f"auth_load_user {spec!r}: {attr} not callable in {py_file}"
+        raise ConfigError(msg)
+    return callable_obj
+
+
+def _wire_auth_middleware(app: App, config: PurrConfig) -> None:
+    """Add session, auth, and CSRF middleware when config.auth is True."""
+    if not config.auth:
+        return
+    secret = config.session_secret or "dev-only-not-for-production"
+    load_user = _resolve_load_user(config)
+    if load_user is None:
+        msg = "auth=True requires auth_load_user (e.g. auth:load_user)"
+        raise ConfigError(msg)
+    try:
+        from chirp.middleware.auth import AuthConfig, AuthMiddleware
+        from chirp.middleware.csrf import CSRFConfig, CSRFMiddleware, csrf_field
+        from chirp.middleware.sessions import SessionConfig, SessionMiddleware
+    except ImportError as exc:
+        msg = (
+            "auth=True requires chirp[sessions,auth]. "
+            "Install with: pip install chirp[sessions,auth]"
+        )
+        raise ConfigError(msg) from exc
+    app.add_middleware(SessionMiddleware(SessionConfig(secret_key=secret)))
+    app.add_middleware(AuthMiddleware(AuthConfig(load_user=load_user)))
+    app.add_middleware(CSRFMiddleware(CSRFConfig()))
+    app.template_global("csrf_field")(csrf_field)
+
+
+def _wire_template_globals(site: Site, app: App) -> None:
+    """Inject site and nav_sections into template globals for all templates."""
+    app._template_globals["site"] = site
+    app._template_globals["nav_sections"] = [
+        {"title": s.title or s.name, "href": getattr(s, "href", f"/{s.name}/")}
+        for s in site.sections
+        if getattr(s, "title", None) or getattr(s, "name", None)
+    ]
+
+
+def _wire_content_routes(
+    site: Site, app: App, config: PurrConfig
+) -> tuple[ContentRouter, int]:
     """Register Bengal content pages as Chirp routes.
+
+    When config.auth is True, pages with gated metadata (config.gated_metadata_key)
+    are wrapped with @login_required.
 
     Returns the ContentRouter instance and the number of pages registered.
 
@@ -152,7 +253,7 @@ def _wire_content_routes(site: Site, app: App) -> tuple[ContentRouter, int]:
     from purr.content.router import ContentRouter
 
     try:
-        router = ContentRouter(site, app)
+        router = ContentRouter(site, app, config)
         router.register_pages()
         return router, router.page_count
     except Exception as exc:
@@ -163,9 +264,10 @@ def _wire_content_routes(site: Site, app: App) -> tuple[ContentRouter, int]:
 def _mount_static_files(app: App, config: PurrConfig) -> None:
     """Mount static file middleware with theme fallback.
 
-    Mounts user static directory first, then the bundled theme assets.
-    Both are served under ``/static``.  User files take precedence because
-    Chirp's middleware stack is checked in registration order.
+    Mounts user static directory first, then bundled theme assets.
+    chirp-ui (chirpui.css, themes/, chirpui-transitions.css) is served
+    via use_chirp_ui() in _create_chirp_app when chirp-ui is installed.
+    All served under ``/static``. User files take precedence.
 
     """
     from chirp.middleware import StaticFiles
@@ -249,7 +351,7 @@ def _setup_reactive_pipeline(
 
     # DependencyGraph resolves kida_env lazily from the app reference
     # because the Kida environment isn't created until Chirp's _freeze().
-    graph = DependencyGraph(tracer=tracer, app=app)
+    graph = DependencyGraph(tracer=tracer, app=app, site=site)
     mapper = ReactiveMapper()
     pipeline = ReactivePipeline(
         graph=graph,
@@ -341,7 +443,7 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
     from purr import _set_site
     from purr.banner import print_banner
 
-    config = PurrConfig(root=Path(root), **kwargs)
+    config = load_config(Path(root), **kwargs)
     t0 = time.perf_counter()
 
     # Load Bengal site and make it available via purr.site
@@ -350,9 +452,13 @@ def dev(root: str | Path = ".", **kwargs: object) -> None:
 
     # Create Chirp app with debug enabled
     app = _create_chirp_app(config, debug=True)
+    _wire_auth_middleware(app, config)
 
     # Wire content routes
-    router, page_count = _wire_content_routes(site, app)
+    router, page_count = _wire_content_routes(site, app, config)
+
+    # Inject site and nav_sections for all templates (including dynamic routes)
+    _wire_template_globals(site, app)
 
     # Wire dynamic routes from routes/ directory
     dynamic_defs = _wire_dynamic_routes(app, config)
@@ -397,7 +503,7 @@ def build(root: str | Path = ".", **kwargs: object) -> None:
     from purr.banner import print_banner
     from purr.export.static import StaticExporter
 
-    config = PurrConfig(root=Path(root), **kwargs)
+    config = load_config(Path(root), **kwargs)
     t0 = time.perf_counter()
 
     # Load Bengal site
@@ -405,9 +511,13 @@ def build(root: str | Path = ".", **kwargs: object) -> None:
 
     # Create Chirp app for template rendering
     app = _create_chirp_app(config)
+    _wire_auth_middleware(app, config)
 
     # Wire content routes (needed for template resolution)
-    _router, page_count = _wire_content_routes(site, app)
+    _router, page_count = _wire_content_routes(site, app, config)
+
+    # Inject site and nav_sections for all templates
+    _wire_template_globals(site, app)
 
     # Discover dynamic routes
     dynamic_defs = _wire_dynamic_routes(app, config)
@@ -472,7 +582,7 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
     from purr import _set_site
     from purr.banner import print_banner
 
-    config = PurrConfig(root=Path(root), **kwargs)
+    config = load_config(Path(root), **kwargs)
     t0 = time.perf_counter()
 
     # Load Bengal site and make it available via purr.site
@@ -481,9 +591,13 @@ def serve(root: str | Path = ".", **kwargs: object) -> None:
 
     # Create Chirp app (production mode — no debug, no reload)
     app = _create_chirp_app(config, debug=False)
+    _wire_auth_middleware(app, config)
 
     # Wire content routes
-    _router, page_count = _wire_content_routes(site, app)
+    _router, page_count = _wire_content_routes(site, app, config)
+
+    # Inject site and nav_sections for all templates
+    _wire_template_globals(site, app)
 
     # Wire dynamic routes from routes/ directory
     dynamic_defs = _wire_dynamic_routes(app, config)

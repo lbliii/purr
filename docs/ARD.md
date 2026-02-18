@@ -637,6 +637,7 @@ messages with file paths, line numbers, and fix suggestions. Errors don't crash 
 | Block rendering | Kida | `Template.render_block(name, **ctx)` | Available |
 | Block deps analysis | Kida | `Template.block_metadata()` | Available |
 | Template deps | Kida | `Template.depends_on()` | Available |
+| Template inheritance | Kida | `Template.template_metadata().extends` | Used (cascade detection) |
 | Streaming render | Kida | `Template.render_stream(**ctx)` | Available |
 | HTTP routing | Chirp | `App.route()`, `Router` | Available |
 | SSE streaming | Chirp | `EventStream`, `Fragment`, `SSEEvent` | Available |

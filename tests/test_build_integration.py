@@ -424,7 +424,8 @@ class TestBuildParity:
         )
 
         app = App(config=AppConfig(template_dir=templates))
-        _wire_content_routes(site, app)
+        config = PurrConfig(root=tmp_path, output=tmp_path / "dist")
+        _wire_content_routes(site, app, config)
 
         # Get live response
         async with TestClient(app) as client:
@@ -437,11 +438,10 @@ class TestBuildParity:
 
         # Get exported response
         output = tmp_path / "dist"
-        config = PurrConfig(root=tmp_path, output=output)
 
         # Create a fresh app for the exporter (same config)
         export_app = App(config=AppConfig(template_dir=templates))
-        _wire_content_routes(site, export_app)
+        _wire_content_routes(site, export_app, config)
 
         exporter = StaticExporter(site=site, app=export_app, config=config)
         result = exporter.export()

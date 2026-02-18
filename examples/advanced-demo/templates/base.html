@@ -1,0 +1,52 @@
+{% extends "chirpui/app_layout.html" %}
+{% block title %}{{ title ?? site.title ?? 'Purr Academy' }}{% end %}
+{% block head %}
+{{ super() }}
+<script>
+(function(){
+  try {
+    var stored = localStorage.getItem('purr-theme');
+    var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e) {}
+})();
+</script>
+{% end %}
+{% block body_before %}
+{% from "chirpui/navbar.html" import navbar, navbar_link %}
+{% from "chirpui/layout.html" import container %}
+{% from "chirpui/button.html" import btn %}
+<header class="chirpui-surface" style="border-bottom: 1px solid var(--chirpui-border); padding: var(--chirpui-spacing);">
+  {% call container() %}
+  {% call navbar(brand=site.title ?? 'Purr Academy', brand_url="/") %}
+    {% for sec in (nav_sections ?? []) %}
+    {{ navbar_link(sec.href, sec.title) }}
+    {% end %}
+    {{ navbar_link("/search", "Search") }}
+    {{ navbar_link("/contact", "Contact") }}
+    {% if current_user() and current_user().is_authenticated %}
+    {{ navbar_link("/dashboard", "Dashboard") }}
+    <form action="/logout" method="post" style="display:inline;margin:0;">
+      {{ csrf_field() }}
+      {{ btn("Log out", type="submit", variant="ghost") }}
+    </form>
+    {% else %}
+    {{ navbar_link("/login", "Log in") }}
+    {% end %}
+    {% for item in (dynamic_routes ?? []) %}
+    {{ navbar_link(item.path, item.title) }}
+    {% end %}
+  {% end %}
+  {% end %}
+</header>
+{% end %}
+{% block content %}
+<main style="padding: var(--chirpui-spacing-xl) 0;">
+  {% call container() %}
+  {% block main %}{% end %}
+  {% end %}
+</main>
+<footer class="chirpui-text-muted" style="padding: var(--chirpui-spacing); text-align: center; font-size: var(--chirpui-font-sm);">
+  <span>&copy; {{ site.title ?? 'Purr Academy' }}</span>
+</footer>
+{% end %}

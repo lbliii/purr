@@ -32,16 +32,21 @@ classifiers = [
 ]
 dependencies = [
     "bengal>=0.2.0",
-    "bengal-chirp>=0.1.0",
-    "bengal-pounce>=0.1.0",
+    "bengal-chirp>=0.1.1",
+    "bengal-pounce>=0.2.0",
     "watchfiles>=1.0.0",
+    # Auth (sessions + password hashing) — required when purr.yaml has auth: true
+    "itsdangerous>=2.2.0",
+    "argon2-cffi>=23.1.0",
+    # chirp-ui for component library (layout, card, forms, etc.)
+    "chirp-ui>=0.1.0",
 ]
 
 [project.optional-dependencies]
 # Full protocol support (passed through to bengal-pounce)
-full = [
-    "bengal-pounce[full]",
-]
+full = ["bengal-pounce[full]"]
+# Auth — sessions/auth deps are now in main; kept for backwards compat
+auth = []
 
 [project.scripts]
 purr = "purr._cli:main"
@@ -64,15 +69,16 @@ purr = [
 ]
 
 # =============================================================================
-# uv — Local source overrides for unpublished ecosystem packages
+# uv — Workspace sources (resolved by workspace root pyproject.toml)
 # =============================================================================
-# bengal, chirp, and pounce are sibling repos in the same workspace.
-# kida-templates, patitas, and rosettes are published on PyPI.
+# When inside the b-stack workspace, all deps resolve as workspace members.
+# Standalone (PyPI) installs use published versions.
 
 [tool.uv.sources]
-bengal = { path = "../bengal", editable = true }
-bengal-chirp = { path = "../chirp", editable = true }
-bengal-pounce = { path = "../pounce", editable = true }
+bengal = { workspace = true }
+bengal-chirp = { workspace = true }
+bengal-pounce = { workspace = true }
+chirp-ui = { workspace = true }
 
 # =============================================================================
 # Ruff — Linter & Formatter
@@ -102,12 +108,12 @@ select = [
     "PT",   # flake8-pytest-style — pytest best practices
 ]
 ignore = [
-    "E501",   # line too long — handled by formatter
+    "E501", # line too long — handled by formatter
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = ["F401"]    # Allow unused imports in __init__ files (re-exports)
-"tests/**/*.py" = ["S101"]  # Allow assert in tests
+"__init__.py" = ["F401"]   # Allow unused imports in __init__ files (re-exports)
+"tests/**/*.py" = ["S101"] # Allow assert in tests
 
 # =============================================================================
 # ty — Type Checker (Rust-based, Astral)
@@ -204,8 +210,17 @@ format = { cmd = "ruff format .", help = "Format code with ruff" }
 format-check = { cmd = "ruff format . --check", help = "Check formatting" }
 
 # CI Pipeline
-ci = { sequence = ["lint", "format-check", "ty", "test"], help = "Full CI check" }
-check = { sequence = ["lint", "format-check", "ty"], help = "Quick check (no tests)" }
+ci = { sequence = [
+    "lint",
+    "format-check",
+    "ty",
+    "test",
+], help = "Full CI check" }
+check = { sequence = [
+    "lint",
+    "format-check",
+    "ty",
+], help = "Quick check (no tests)" }
 
 # Build & Release
 dist = { shell = "rm -rf dist/ && uv build && ls -la dist/", help = "Build distribution" }

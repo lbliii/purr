@@ -2,10 +2,41 @@
 
 from __future__ import annotations
 
+import sys
+from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
+
+# Provide minimal chirp mock when chirp not installed (e.g. PYTHONPATH=src only)
+try:
+    import chirp  # noqa: F401
+except ImportError:
+    _chirp = ModuleType("chirp")
+
+    @dataclass
+    class SSEEvent:
+        data: str
+        event: str | None = None
+        id: str | None = None
+        retry: int | None = None
+
+    @dataclass
+    class Fragment:
+        template_name: str
+        block_name: str
+        context: dict[str, Any]
+
+        def __init__(self, template_name: str, block_name: str, **kwargs: Any) -> None:
+            self.template_name = template_name
+            self.block_name = block_name
+            self.context = kwargs
+
+    _chirp.SSEEvent = SSEEvent
+    _chirp.Fragment = Fragment
+    sys.modules["chirp"] = _chirp
 
 
 @pytest.fixture

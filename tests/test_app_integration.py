@@ -73,7 +73,8 @@ class TestWireContentRoutes:
         site = make_test_site(tmp_path, pages)
         app = App(config=AppConfig(template_dir=tmp_path))
 
-        _router, count = _wire_content_routes(site, app)
+        config = PurrConfig(root=tmp_path)
+        _router, count = _wire_content_routes(site, app, config)
         assert count == 2
 
     def test_empty_site_returns_zero(self, tmp_path: Path) -> None:
@@ -81,8 +82,9 @@ class TestWireContentRoutes:
 
         site = make_test_site(tmp_path, [])
         app = App(config=AppConfig(template_dir=tmp_path))
+        config = PurrConfig(root=tmp_path)
 
-        _router, count = _wire_content_routes(site, app)
+        _router, count = _wire_content_routes(site, app, config)
         assert count == 0
 
 
@@ -133,8 +135,9 @@ class TestEndToEndRouting:
         ]
         site = make_test_site(tmp_path, pages)
         app = App(config=AppConfig(template_dir=templates))
+        config = PurrConfig(root=tmp_path)
 
-        _wire_content_routes(site, app)
+        _wire_content_routes(site, app, config)
 
         async with TestClient(app) as client:
             response = await client.get("/hello/")
@@ -158,7 +161,8 @@ class TestEndToEndRouting:
         ]
         site = make_test_site(tmp_path, pages)
         app = App(config=AppConfig(template_dir=templates))
-        _wire_content_routes(site, app)
+        config = PurrConfig(root=tmp_path)
+        _wire_content_routes(site, app, config)
 
         async with TestClient(app) as client:
             resp_a = await client.get("/a/")
@@ -188,7 +192,8 @@ class TestEndToEndRouting:
         pages = [make_test_page(tmp_path / "a.md", href="/a/", html_content="<p>A</p>")]
         site = make_test_site(tmp_path, pages)
         app = App(config=AppConfig(template_dir=templates))
-        _wire_content_routes(site, app)
+        config = PurrConfig(root=tmp_path)
+        _wire_content_routes(site, app, config)
 
         async with TestClient(app) as client:
             response = await client.get("/nonexistent/")

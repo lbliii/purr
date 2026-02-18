@@ -9,13 +9,25 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from chirp import Request
+from purr.config import PurrConfig
+
 if TYPE_CHECKING:
     from bengal.core.page import Page
     from bengal.core.site import Site
-    from chirp import App, Request
+    from chirp import App
 
     from purr.observability.collector import StackCollector
     from purr.reactive.broadcaster import Broadcaster
+
+
+def _is_gated(page: object, key: str) -> bool:
+    """Return True if page metadata has a truthy gated key."""
+    meta = getattr(page, "metadata", None)
+    if not isinstance(meta, dict):
+        return False
+    val = meta.get(key)
+    return bool(val)
 
 
 _DEFAULT_TEMPLATE = "page.html"
@@ -57,16 +69,20 @@ class ContentRouter:
 
     Discovers Bengal pages at startup and registers each as a Chirp route.
     Pages are rendered through Kida templates via Chirp's template integration.
+    When config.auth is True, pages with gated metadata are protected by
+    @login_required.
 
     Args:
         site: Bengal Site containing discovered pages and sections.
         app: Chirp App to register routes on (must not yet be frozen).
+        config: PurrConfig for auth and gated content settings.
 
     """
 
-    def __init__(self, site: Site, app: App) -> None:
+    def __init__(self, site: Site, app: App, config: PurrConfig) -> None:
         self._site = site
         self._app = app
+        self._config = config
         self._page_count = 0
 
     @property
@@ -91,6 +107,12 @@ class ContentRouter:
 
             template_name = _resolve_template_name(page)
             handler = self._make_page_handler(page, template_name)
+
+            # Wrap gated pages with @login_required when auth is enabled
+            if self._config.auth and _is_gated(page, self._config.gated_metadata_key):
+                from chirp import login_required
+
+                handler = login_required(handler)
 
             # Register as a Chirp route — use the decorator as a function call
             self._app.route(permalink, name=f"page:{permalink}")(handler)

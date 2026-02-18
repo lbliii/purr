@@ -1,0 +1,5 @@
+# Purr Academy — advanced demo with auth, gated content, search, contact form
+auth: true
+auth_load_user: auth:load_user
+session_secret: dev-only-change-in-production
+gated_metadata_key: gated

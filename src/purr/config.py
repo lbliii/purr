@@ -24,6 +24,11 @@ class PurrConfig:
         static_dir: Directory containing static assets.
         base_url: Base URL for the site (used for sitemap generation).
         fingerprint: Enable content-hash asset fingerprinting in ``purr build``.
+        auth: Enable session + auth middleware (requires chirp[sessions,auth]).
+        auth_load_user: Dotted path to async load_user(id) callable, e.g.
+            ``auth:load_user`` for routes/auth.py.
+        session_secret: Secret key for session signing (required when auth=True).
+        gated_metadata_key: Frontmatter key for gated content (default ``gated``).
 
     """
 
@@ -38,6 +43,10 @@ class PurrConfig:
     static_dir: str = "static"
     base_url: str = ""
     fingerprint: bool = False
+    auth: bool = False
+    auth_load_user: str | None = None
+    session_secret: str | None = None
+    gated_metadata_key: str = "gated"
 
     def __post_init__(self) -> None:
         # Resolve root to absolute so that watchfiles (which returns

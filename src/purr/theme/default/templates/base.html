@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 {#
 ================================================================================
 Purr Default Theme — Base Template
@@ -6,73 +5,57 @@ Purr Default Theme — Base Template
 Bengal provides: page, site, config, params, meta, section
 Purr adds: dynamic_routes (optional, from routes/ discovery)
 
-Minimal, content-focused layout. Users override by placing their own
-base.html in their templates/ directory (takes priority via fallback chain).
+Uses chirp-ui (app_layout, navbar, layout macros). Requires chirp-ui.
+Users override by placing their own base.html in templates/ (takes priority).
 ================================================================================
 #}
-<html lang="en" data-theme="light">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  {% block title_tag %}
-  <title>{% block title %}{{ page.title ?? site.title ?? 'Purr' }}{% end %}</title>
+{% extends "chirpui/app_layout.html" %}
+{% block title %}{{ page.title ?? site.title ?? 'Purr' }}{% end %}
+{% block head %}
+{{ super() }}
+{% if site.description ?? none %}
+<meta name="description" content="{{ site.description }}">
+{% end %}
+<script>
+(function(){
+  try {
+    var stored = localStorage.getItem('purr-theme');
+    var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch(e) {}
+})();
+</script>
+{% end %}
+{% block body_before %}
+{% from "chirpui/navbar.html" import navbar, navbar_link %}
+{% from "chirpui/layout.html" import container %}
+<header class="chirpui-surface" style="border-bottom: 1px solid var(--chirpui-border); padding: var(--chirpui-spacing);">
+  {% call container() %}
+  {% call navbar(brand=site.title ?? 'Purr', brand_url="/") %}
+    {% for sec in (nav_sections ?? []) %}
+    {{ navbar_link(sec.href, sec.title) }}
+    {% end %}
+    {% for item in (dynamic_routes ?? []) %}
+    {{ navbar_link(item.path, item.title) }}
+    {% end %}
+    <button type="button" class="theme-toggle chirpui-btn chirpui-btn--ghost" aria-label="Toggle theme" title="Toggle light/dark">
+      <span class="theme-icon-light" aria-hidden="true">&#9789;</span>
+      <span class="theme-icon-dark" aria-hidden="true">&#9788;</span>
+    </button>
   {% end %}
-
-  {% if site.description ?? none %}
-  <meta name="description" content="{{ site.description }}">
   {% end %}
-
-  {# Theme init — prevent flash of wrong theme #}
-  <script>
-  (function(){
-    try {
-      var stored = localStorage.getItem('purr-theme');
-      var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      document.documentElement.setAttribute('data-theme', theme);
-    } catch(e) {}
-  })();
-  </script>
-
-  <link rel="stylesheet" href="/static/css/purr.css">
-
-  {% block extra_head %}{% end %}
-</head>
-<body>
-  <header class="site-header">
-    <nav class="site-nav">
-      <a href="/" class="site-logo">{{ site.title ?? 'Purr' }}</a>
-      <div class="nav-links">
-        {% for sec in (nav_sections ?? []) %}
-        <a href="{{ sec.href }}">{{ sec.title }}</a>
-        {% end %}
-        {% for item in (dynamic_routes ?? []) %}
-        <a href="{{ item.path }}">{{ item.title }}</a>
-        {% end %}
-        <button type="button" class="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark">
-          <span class="theme-icon-light">&#9789;</span>
-          <span class="theme-icon-dark">&#9788;</span>
-        </button>
-      </div>
-    </nav>
-  </header>
-
-  <main class="site-main">
-    {% block content %}{% end %}
-  </main>
-
-  <footer class="site-footer">
-    <div class="footer-inner">
-      <span class="footer-copyright">&copy; {{ site.title ?? 'Purr' }}</span>
-      <span class="footer-badge">
-        <a href="https://github.com/lbliii/bengal" aria-label="Built with Purr">
-          <span class="purr-cat">{# ᓚᘏᗢ #}&#5338;&#5656;&#5346;</span>
-        </a>
-      </span>
-    </div>
-  </footer>
-
-  <script src="/static/js/purr.js"></script>
-  {% block extra_js %}{% end %}
-</body>
-</html>
+</header>
+{% end %}
+{% block content %}
+<main style="padding: var(--chirpui-spacing-xl) 0;">
+  {% call container() %}
+  {% block main %}{% end %}
+  {% end %}
+</main>
+<footer class="chirpui-text-muted" style="padding: var(--chirpui-spacing); text-align: center; font-size: var(--chirpui-font-sm);">
+  <span>&copy; {{ site.title ?? 'Purr' }}</span>
+  <a href="https://github.com/lbliii/purr" aria-label="Built with Purr" style="margin-left: var(--chirpui-spacing); color: inherit;">&#5338;&#5656;&#5346;</a>
+</footer>
+<script src="/static/js/purr.js"></script>
+{% block extra_js %}{% end %}
+{% end %}

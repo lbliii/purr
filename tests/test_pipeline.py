@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -53,8 +53,12 @@ def pipeline(broadcaster: Broadcaster, graph: DependencyGraph) -> ReactivePipeli
     page.metadata = {}
     site.pages = [page]
 
+    # Graph with site for template-change handling (pages_using_template)
+    graph_with_site = DependencyGraph(
+        graph._tracer, graph._app, site=site
+    )
     return ReactivePipeline(
-        graph=graph,
+        graph=graph_with_site,
         mapper=ReactiveMapper(),
         broadcaster=broadcaster,
         site=site,
@@ -218,6 +222,110 @@ class TestPipelineTemplateChange:
         assert not conn.queue.empty()
         item = conn.queue.get_nowait()
         assert item.event == "purr:refresh"
+
+    @pytest.mark.asyncio
+    async def test_template_change_cascade_via_extends(
+        self, broadcaster: Broadcaster
+    ) -> None:
+        """When base template (extended by page.html) changes, all subscribers get full refresh."""
+        from purr.reactive.broadcaster import SSEConnection
+
+        # Mock Kida env: page.html extends base.html
+        env = MagicMock()
+        page_tmpl = MagicMock()
+        page_tmpl.template_metadata.return_value = MagicMock(extends="base.html")
+        base_tmpl = MagicMock()
+        base_tmpl.template_metadata.return_value = MagicMock(extends=None)
+        env.get_template.side_effect = lambda n: page_tmpl if n == "page.html" else base_tmpl
+        loader = MagicMock()
+        loader.list_templates.return_value = ["page.html", "base.html"]
+        env.loader = loader
+
+        site = MagicMock()
+        page = MagicMock()
+        page.source_path = Path("/site/content/page.md")
+        page.href = "/page/"
+        page.metadata = {}
+        site.pages = [page]
+
+        tracer = MagicMock()
+        tracer.outputs_needing_rebuild.return_value = set()
+        app = MagicMock()
+        app._kida_env = env
+        graph = DependencyGraph(tracer, app, site=site)
+
+        conn = SSEConnection(client_id="c1", permalink="/page/")
+        broadcaster.subscribe("/page/", conn)
+
+        pipeline = ReactivePipeline(
+            graph=graph,
+            mapper=ReactiveMapper(),
+            broadcaster=broadcaster,
+            site=site,
+        )
+
+        event = ChangeEvent(
+            path=Path("/site/templates/base.html"),
+            kind="modified",
+            category="template",
+        )
+        await pipeline.handle_change(event)
+
+        assert not conn.queue.empty()
+        item = conn.queue.get_nowait()
+        assert item.event == "purr:refresh"
+
+    @pytest.mark.asyncio
+    async def test_page_template_change_refreshes_affected_pages_only(
+        self, broadcaster: Broadcaster
+    ) -> None:
+        """page.html change pushes refresh only to pages using that template."""
+        # Site: page1 uses page.html, page2 uses index.html
+        site = MagicMock()
+        page1 = MagicMock()
+        page1.source_path = Path("/site/content/docs/intro.md")
+        page1.href = "/docs/intro/"
+        page1.metadata = {}
+        page2 = MagicMock()
+        page2.source_path = Path("/site/content/about/_index.md")
+        page2.href = "/about/"
+        page2.metadata = {}
+        site.pages = [page1, page2]
+
+        tracer = MagicMock()
+        tracer.outputs_needing_rebuild.return_value = set()
+        env = MagicMock()
+        env.get_template.side_effect = KeyError("not found")
+        app = MagicMock()
+        app._kida_env = env
+        graph = DependencyGraph(tracer, app, site=site)
+
+        # Mock push_full_refresh to avoid chirp dependency; verify correct calls
+        broadcaster_mock = MagicMock(spec=Broadcaster)
+        broadcaster_mock.get_subscribed_pages.return_value = ["/docs/intro/", "/about/"]
+        broadcaster_mock.push_full_refresh = AsyncMock(return_value=0)
+
+        pipeline = ReactivePipeline(
+            graph=graph,
+            mapper=ReactiveMapper(),
+            broadcaster=broadcaster_mock,
+            site=site,
+        )
+
+        event = ChangeEvent(
+            path=Path("/site/templates/page.html"),
+            kind="modified",
+            category="template",
+        )
+        await pipeline.handle_change(event)
+
+        # push_full_refresh should be called only for /docs/intro/ (page.html)
+        # not for /about/ (index.html)
+        broadcaster_mock.push_full_refresh.assert_called()
+        calls = broadcaster_mock.push_full_refresh.call_args_list
+        permalinks = [c[0][0] for c in calls]
+        assert "/docs/intro/" in permalinks
+        assert "/about/" not in permalinks
 
 
 class TestPipelineConfigChange:

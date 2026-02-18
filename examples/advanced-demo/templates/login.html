@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/forms.html" import text_field %}
+{% from "chirpui/button.html" import btn %}
+{% call stack(gap="lg") %}
+<h1 class="chirpui-font-xl" style="font-weight: 600;">Log in</h1>
+{% if error %}
+<p class="chirpui-field__error" style="margin-bottom: var(--chirpui-spacing);">{{ error }}</p>
+{% end %}
+<form method="post" action="/login" class="chirpui-stack chirpui-stack--lg" style="max-width: 24rem;">
+  {{ csrf_field() }}
+  {{ text_field("username", label="Username", required=true) }}
+  {{ text_field("password", type="password", label="Password", required=true) }}
+  {{ btn("Log in", type="submit") }}
+</form>
+<p class="chirpui-text-muted chirpui-font-sm">Demo: admin / password</p>
+{% end %}
+{% end %}

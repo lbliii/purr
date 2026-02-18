@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/button.html" import btn %}
+{% call stack(gap="lg") %}
+<h1 class="chirpui-font-xl" style="font-weight: 600;">Thank you</h1>
+<p class="chirpui-text-muted">Thanks for your message, {{ name }}! We'll get back to you soon.</p>
+{{ btn("Back to home", href="/") }}
+{% end %}
+{% end %}

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/forms.html" import search_field %}
+{% from "chirpui/button.html" import btn %}
+{% from "chirpui/empty.html" import empty_state %}
+{% call stack(gap="lg") %}
+<h1 class="chirpui-font-xl" style="font-weight: 600;">Search</h1>
+<form method="get" action="/search" class="chirpui-stack chirpui-stack--sm" style="max-width: 32rem;">
+  {{ search_field("q", value=query, placeholder="Search...") }}
+  {{ btn("Search", type="submit") }}
+</form>
+{% if results %}
+<ul class="chirpui-stack chirpui-stack--sm" style="list-style: none; padding: 0;">
+  {% for r in results %}
+  <li><a href="{{ r.href }}" style="color: var(--chirpui-color-gold); text-decoration: none;">{{ r.title }}</a></li>
+  {% end %}
+</ul>
+{% elif query %}
+{% call empty_state(title='No results', icon='🔍') %}
+<p>No results for "{{ query }}".</p>
+{% end %}
+{% end %}
+{% end %}
+{% end %}

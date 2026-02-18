@@ -9,33 +9,32 @@ Lists child pages as linked cards. Used for _index.md section pages.
 
 {% block title %}{{ page.title ?? section.title ?? 'Index' }} — {{ site.title ?? 'Purr' }}{% end %}
 
-{% block content %}
-<div class="index-layout">
-  <header class="index-header">
-    <h1>{{ page.title ?? section.title ?? 'Index' }}</h1>
-    {% if content %}
-    <div class="index-description prose">
-      {{ content | safe }}
-    </div>
-    {% end %}
-  </header>
-
-  {% let children = child_pages ?? section.pages ?? [] %}
-  {% if children | length > 0 %}
-  <div class="index-grid">
-    {% for child in children %}
-    <a href="{{ child.href ?? '#' }}" class="index-card">
-      <h2 class="index-card-title">{{ child.title ?? 'Untitled' }}</h2>
-      {% if child.description ?? child.excerpt ?? none %}
-      <p class="index-card-desc">{{ child.description ?? child.excerpt }}</p>
-      {% end %}
-    </a>
-    {% end %}
-  </div>
-  {% else %}
-  <div class="index-empty">
-    <p>No pages in this section yet.</p>
+{% block main %}
+{% from "chirpui/layout.html" import stack, grid %}
+{% from "chirpui/card.html" import card_link %}
+{% from "chirpui/empty.html" import empty_state %}
+{% call stack(gap="lg") %}
+<header>
+  <h1 class="chirpui-font-xl" style="font-weight: 600;">{{ page.title ?? section.title ?? 'Index' }}</h1>
+  {% if content %}
+  <div class="chirpui-stack chirpui-stack--sm" style="line-height: var(--chirpui-line-height-relaxed); margin-top: var(--chirpui-spacing);">
+    {{ content | safe }}
   </div>
   {% end %}
+</header>
+
+{% let children = child_pages ?? section.pages ?? [] %}
+{% if children | length > 0 %}
+<div class="chirpui-grid chirpui-grid--cols-2" style="margin-top: var(--chirpui-spacing-xl);">
+  {% for child in children %}
+  {% call card_link(child.href ?? '#', child.title ?? 'Untitled') %}
+  {{ child.description ?? child.excerpt ?? "" }}
+  {% end %}
+  {% end %}
 </div>
+{% else %}
+{% call empty_state(title="No pages yet", icon="📄") %}
+<p>No pages in this section yet.</p>
+{% end %}
+{% end %}
 {% end %}

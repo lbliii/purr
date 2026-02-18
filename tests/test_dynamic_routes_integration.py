@@ -132,7 +132,7 @@ class TestMixedRoutes:
             ),
         ]
         site = make_test_site(site_with_routes, pages)
-        _wire_content_routes(site, app)
+        _wire_content_routes(site, app, config)
         _wire_dynamic_routes(app, config)
 
         async with TestClient(app) as client:
@@ -169,7 +169,7 @@ class TestMixedRoutes:
             ),
         ]
         site = make_test_site(site_with_routes, pages)
-        _wire_content_routes(site, app)
+        _wire_content_routes(site, app, config)
         _wire_dynamic_routes(app, config)
 
         async with TestClient(app) as client:

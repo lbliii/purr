@@ -315,12 +315,10 @@ class ReactivePipeline:
             for permalink in self._broadcaster.get_subscribed_pages():
                 await self._broadcaster.push_full_refresh(permalink)
         else:
-            # Find affected pages and push refresh for each
-            affected = self._graph.affected_pages({event.path})
+            # Find affected pages via site-model (template name -> source paths)
+            affected_source_paths = self._graph.pages_using_template(template_name)
             for page in self._site.pages:
-                if not hasattr(page, "source_path"):
-                    continue
-                if Path(page.source_path) in affected:
+                if hasattr(page, "source_path") and Path(page.source_path) in affected_source_paths:
                     permalink = self._get_permalink(page)
                     if permalink:
                         await self._broadcaster.push_full_refresh(permalink)

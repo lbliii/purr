@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ page.title ?? site.title ?? 'Purr Academy' }}{% end %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+<article class="chirpui-stack chirpui-stack--lg" style="line-height: var(--chirpui-line-height-relaxed);">
+  {{ content | safe }}
+</article>
+{% end %}

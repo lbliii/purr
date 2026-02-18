@@ -10,40 +10,54 @@ Auto-selected for pages without a specific template override.
 
 {% block title %}{{ page.title ?? 'Page' }} — {{ site.title ?? 'Purr' }}{% end %}
 
-{% block content %}
-<div id="purr-content" class="page-layout{{ ' page-with-toc' if toc else '' }}">
-  <article class="page prose">
-    <header class="page-header">
-      <h1>{{ page.title ?? 'Untitled' }}</h1>
-      {% if page.date ?? none %}
-      <time class="page-date" datetime="{{ page.date }}">{{ page.date }}</time>
-      {% end %}
-    </header>
-
-    <div class="page-content">
-      {{ content | safe }}
-    </div>
-
-    {% if (page.tags ?? []) | length > 0 %}
-    <footer class="page-footer">
-      <div class="page-tags">
-        {% for tag in page.tags %}
-        <span class="tag">{{ tag }}</span>
-        {% end %}
-      </div>
-    </footer>
+{% block main %}
+{% from "chirpui/layout.html" import stack, grid, block %}
+{% from "chirpui/badge.html" import badge %}
+{% if toc %}
+{% call grid(cols=2) %}
+{% call block(span=1) %}
+<article class="chirpui-stack chirpui-stack--lg" style="line-height: var(--chirpui-line-height-relaxed);">
+  <header>
+    <h1 class="chirpui-font-xl" style="font-weight: 600;">{{ page.title ?? 'Untitled' }}</h1>
+    {% if page.date ?? none %}
+    <time class="chirpui-text-muted chirpui-font-sm" datetime="{{ page.date }}">{{ page.date }}</time>
     {% end %}
-  </article>
-
-  {% if toc %}
-  <aside class="page-sidebar">
-    <nav class="toc" aria-label="Table of contents">
-      <h2 class="toc-title">On this page</h2>
-      <div class="toc-content">
-        {{ toc | safe }}
-      </div>
-    </nav>
-  </aside>
+  </header>
+  <div>{{ content | safe }}</div>
+  {% if (page.tags ?? []) | length > 0 %}
+  <footer class="chirpui-stack chirpui-stack--sm" style="margin-top: var(--chirpui-spacing-xl); flex-direction: row; flex-wrap: wrap; gap: var(--chirpui-spacing-sm);">
+    {% for tag in page.tags %}
+    {{ badge(tag) }}
+    {% end %}
+  </footer>
   {% end %}
-</div>
+</article>
+{% end %}
+{% call block(span=1) %}
+<aside class="chirpui-surface" style="padding: var(--chirpui-spacing); border-radius: var(--chirpui-radius); position: sticky; top: var(--chirpui-spacing);">
+  <nav aria-label="Table of contents">
+    <h2 class="chirpui-font-lg" style="font-weight: 600; margin-bottom: var(--chirpui-spacing);">On this page</h2>
+    <div class="chirpui-stack chirpui-stack--sm">{{ toc | safe }}</div>
+  </nav>
+</aside>
+{% end %}
+{% end %}
+{% else %}
+<article class="chirpui-stack chirpui-stack--lg" style="line-height: var(--chirpui-line-height-relaxed);">
+  <header>
+    <h1 class="chirpui-font-xl" style="font-weight: 600;">{{ page.title ?? 'Untitled' }}</h1>
+    {% if page.date ?? none %}
+    <time class="chirpui-text-muted chirpui-font-sm" datetime="{{ page.date }}">{{ page.date }}</time>
+    {% end %}
+  </header>
+  <div>{{ content | safe }}</div>
+  {% if (page.tags ?? []) | length > 0 %}
+  <footer class="chirpui-stack chirpui-stack--sm" style="margin-top: var(--chirpui-spacing-xl); flex-direction: row; flex-wrap: wrap; gap: var(--chirpui-spacing-sm);">
+    {% for tag in page.tags %}
+    {{ badge(tag) }}
+    {% end %}
+  </footer>
+  {% end %}
+</article>
+{% end %}
 {% end %}

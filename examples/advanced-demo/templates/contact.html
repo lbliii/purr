@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/forms.html" import text_field, textarea_field %}
+{% from "chirpui/button.html" import btn %}
+{% call stack(gap="lg") %}
+<h1 class="chirpui-font-xl" style="font-weight: 600;">Contact</h1>
+{% if error %}
+<p class="chirpui-field__error" style="margin-bottom: var(--chirpui-spacing);">{{ error }}</p>
+{% end %}
+<form method="post" action="/contact" class="chirpui-stack chirpui-stack--lg" style="max-width: 32rem;">
+  {{ csrf_field() }}
+  {{ text_field("name", value=name, label="Name", required=true) }}
+  {{ text_field("email", value=email, type="email", label="Email", required=true) }}
+  {{ textarea_field("message", value=message, label="Message", required=true) }}
+  {{ btn("Send", type="submit") }}
+</form>
+{% end %}
+{% end %}

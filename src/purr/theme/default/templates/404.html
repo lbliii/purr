@@ -7,13 +7,12 @@ Purr Default Theme — 404 Error Page
 
 {% block title %}Page not found — {{ site.title ?? 'Purr' }}{% end %}
 
-{% block content %}
-<div class="error-page">
-  <div class="error-page-inner">
-    <span class="error-code">404</span>
-    <h1>Page not found</h1>
-    <p>The page you're looking for doesn't exist or has been moved.</p>
-    <a href="/" class="error-link">Go home</a>
-  </div>
-</div>
+{% block main %}
+{% from "chirpui/layout.html" import stack %}
+{% from "chirpui/button.html" import btn %}
+{% from "chirpui/empty.html" import empty_state %}
+{% call empty_state(title="Page not found", icon="404") %}
+<p>The page you're looking for doesn't exist or has been moved.</p>
+{{ btn("Go home", href="/") }}
+{% end %}
 {% end %}
